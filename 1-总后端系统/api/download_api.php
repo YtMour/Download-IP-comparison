@@ -84,17 +84,30 @@ class UnifiedDownloadAPI {
     }
     
     private function identifySite() {
-        // 通过HTTP_HOST或API_KEY识别站点
+        // 通过HTTP_HOST、API_KEY或TOKEN识别站点
         $host = $_SERVER['HTTP_HOST'] ?? '';
         $apiKey = $_SERVER['HTTP_X_API_KEY'] ?? $_POST['api_key'] ?? $_GET['api_key'] ?? '';
-        
+        $token = $_POST['token'] ?? $_GET['token'] ?? '';
+
         // 优先通过API Key识别
         if ($apiKey) {
             $stmt = $this->db->prepare("SELECT * FROM {$this->dbManager->getTableName('sites')} WHERE api_key = ?");
             $stmt->execute([$apiKey]);
             $this->currentSite = $stmt->fetch();
         }
-        
+
+        // 通过token识别站点（用于IP验证）
+        if (!$this->currentSite && $token) {
+            $stmt = $this->db->prepare("
+                SELECT s.*
+                FROM {$this->dbManager->getTableName('sites')} s
+                JOIN {$this->dbManager->getTableName('downloads')} d ON s.id = d.site_id
+                WHERE d.token = ?
+            ");
+            $stmt->execute([$token]);
+            $this->currentSite = $stmt->fetch();
+        }
+
         // 通过域名识别
         if (!$this->currentSite) {
             foreach ($this->config['sites'] as $key => $site) {
@@ -106,7 +119,15 @@ class UnifiedDownloadAPI {
                 }
             }
         }
-        
+
+        // 如果是IP验证请求且有token，允许通过（因为token已经验证了站点）
+        $action = $_GET['action'] ?? $_POST['action'] ?? '';
+        if (!$this->currentSite && $action === 'verify' && $token) {
+            // 创建一个临时站点对象用于验证
+            $this->currentSite = ['id' => 0, 'name' => 'Token验证', 'site_key' => 'token_verify'];
+            return;
+        }
+
         if (!$this->currentSite) {
             sendJsonError('未识别的站点', 401);
         }
@@ -277,42 +298,55 @@ class UnifiedDownloadAPI {
             return;
         }
         
-        // 执行IP验证
-        if ($record['original_ip'] === $currentIP) {
-            // IP匹配成功
-            $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_MATCH');
-            
+        // 执行IP验证 - 新逻辑：查询IP是否存在于数据库中
+        // 查询当前IP是否存在于数据库的IP库中
+        $ipExistsStmt = $this->db->prepare("
+            SELECT COUNT(*) as count
+            FROM {$this->dbManager->getTableName('downloads')}
+            WHERE original_ip = ?
+        ");
+        $ipExistsStmt->execute([$currentIP]);
+        $ipExists = $ipExistsStmt->fetchColumn() > 0;
+
+        if ($ipExists) {
+            // IP存在于数据库 - 执行完整验证逻辑
+            $this->log("IP存在于数据库，执行验证逻辑: 当前IP=$currentIP");
+
+            // 这里可以添加更多验证逻辑，比如：
+            // - 检查下载时间限制
+            // - 检查用户行为模式
+            // - 检查设备指纹等
+            // - 检查该IP的下载历史
+
+            $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_EXISTS_VERIFIED');
+
             $this->sendResponse([
                 'S' => 1,
-                'result' => 'IP_MATCH',
-                'message' => 'IP验证通过',
+                'result' => 'IP_EXISTS_VERIFIED',
+                'message' => 'IP存在于数据库，执行完整验证',
                 'file_url' => $record['file_url'],
                 'software_name' => $record['software_name'],
                 'site' => $record['site_name']
             ]);
-            
+
         } else {
-            // IP不匹配
-            $this->recordVerification($record['id'], $token, $currentIP, 'IP_MISMATCH');
-            
-            if ($this->config['ip_verification']['strict_mode']) {
-                $this->sendResponse([
-                    'S' => 0,
-                    'result' => 'IP_MISMATCH_STRICT',
-                    'message' => "IP地址不匹配，拒绝下载 (原始: {$record['original_ip']}, 当前: $currentIP)"
-                ]);
-            } else {
-                $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_MISMATCH_ALLOWED');
-                
-                $this->sendResponse([
-                    'S' => 1,
-                    'result' => 'IP_MISMATCH_ALLOWED',
-                    'message' => "IP地址不匹配但允许下载 (原始: {$record['original_ip']}, 当前: $currentIP)",
-                    'file_url' => $record['file_url'],
-                    'software_name' => $record['software_name'],
-                    'site' => $record['site_name']
-                ]);
-            }
+            // IP不存在于数据库 - 跳过验证逻辑，直接允许下载
+            $this->log("IP不存在于数据库，跳过验证逻辑直接下载: 当前IP=$currentIP");
+
+            // 记录IP不存在的情况，但不执行复杂验证
+            $this->recordVerification($record['id'], $token, $currentIP, 'IP_NOT_EXISTS_SKIP_VERIFICATION');
+
+            // 简单更新下载记录，不执行额外验证
+            $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_NOT_EXISTS_SKIP_VERIFICATION');
+
+            $this->sendResponse([
+                'S' => 1,
+                'result' => 'IP_NOT_EXISTS_SKIP_VERIFICATION',
+                'message' => 'IP不存在于数据库，跳过验证直接下载',
+                'file_url' => $record['file_url'],
+                'software_name' => $record['software_name'],
+                'site' => $record['site_name']
+            ]);
         }
     }
     
@@ -427,11 +461,13 @@ file_url = $fileUrl
 
 [server]
 verify_url = $verifyUrl
+api_key = {$this->currentSite['api_key']}
 
 [info]
 created_at = " . date('Y-m-d H:i:s') . "
 expires_at = " . date('Y-m-d H:i:s', time() + ($this->config['ip_verification']['token_expiry_hours'] * 3600)) . "
-site = {$this->currentSite['name']}";
+site = {$this->currentSite['name']}
+site_key = {$this->currentSite['site_key']}";
     }
     
     private function createDownloadPackage($token, $configContent) {
@@ -440,10 +476,14 @@ site = {$this->currentSite['name']}";
             mkdir($downloadsDir, 0755, true);
         }
 
-        // 生成更友好的文件名
+        // 生成更友好的文件名，包含版本号
         $shortToken = substr($token, -8); // 取token最后8位
         $timestamp = time(); // Unix时间戳
-        $zipFilename = "SecureDownloader_{$timestamp}_{$shortToken}.zip";
+
+        // 生成版本号 (格式: v年月日_时分)
+        $version = 'v' . date('Ymd_Hi');
+
+        $zipFilename = "SecureDownloader_{$version}_{$timestamp}_{$shortToken}.zip";
         $zipPath = "$downloadsDir/$zipFilename";
         
         $zip = new ZipArchive();

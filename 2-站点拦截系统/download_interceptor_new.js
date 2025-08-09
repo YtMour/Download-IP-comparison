@@ -1,10 +1,11 @@
 /**
- * 下载拦截器 - 全新版本 v7.2
+ * 下载拦截器 - 全新版本 v8.0
  * 真正的自动下载，无二次点击
- * 修复了浏览器兼容性问题，增加了多种下载方式
+ * 修复了浏览器兼容性问题，解决重复下载问题
+ * 新增版本号支持和缓存清理
  */
 
-console.log('🚀 下载拦截器启动 v7.2 - 优化自动下载版本');
+console.log('🚀 下载拦截器启动 v8.0 - 修复重复下载版本');
 
 class DownloadInterceptorNew {
     constructor() {
@@ -218,24 +219,43 @@ class DownloadInterceptorNew {
     }
 
     autoDownload(downloadUrl, softwareName) {
-        console.log('🚀 强制自动下载 - 无弹窗版本');
+        console.log('🚀 强制自动下载 - 修复重复下载版本');
         console.log('📁 软件名称:', softwareName);
         console.log('🔗 下载链接:', downloadUrl);
 
-        // 创建隐藏的iframe来触发下载
-        const iframe = document.createElement('iframe');
-        iframe.style.display = 'none';
-        iframe.src = downloadUrl;
-        document.body.appendChild(iframe);
+        // 添加缓存破坏参数
+        const cacheBuster = Date.now() + '_' + Math.random().toString(36).substring(2, 11);
+        const finalUrl = downloadUrl + (downloadUrl.includes('?') ? '&' : '?') + 'cb=' + cacheBuster;
 
-        // 1秒后移除iframe
+        console.log('🔗 最终下载链接:', finalUrl);
+
+        // 使用最可靠的方法：创建隐藏的 <a> 标签并自动点击
+        const link = document.createElement('a');
+        link.href = finalUrl;
+        link.download = this.generateDownloadFilename(softwareName);
+        link.style.display = 'none';
+        link.target = '_self'; // 避免打开新页面
+
+        document.body.appendChild(link);
+
+        // 延迟点击以确保DOM已添加
         setTimeout(() => {
-            if (iframe.parentNode) {
-                document.body.removeChild(iframe);
+            try {
+                link.click();
+                console.log('✅ 自动下载已触发');
+            } catch (error) {
+                console.error('❌ 下载触发失败:', error);
+                // 备用方法：直接设置location
+                window.location.href = finalUrl;
             }
-        }, 1000);
 
-        console.log('✅ 下载已通过iframe触发!');
+            // 清理DOM
+            setTimeout(() => {
+                if (link.parentNode) {
+                    document.body.removeChild(link);
+                }
+            }, 1000);
+        }, 200);
 
         // 显示成功提示
         this.showSuccessNotice(softwareName);
@@ -250,6 +270,22 @@ class DownloadInterceptorNew {
 
         const timestamp = Math.floor(Date.now() / 1000);
         return `${cleanName}_${timestamp}.zip`;
+    }
+
+    generateDownloadFilename(softwareName) {
+        // 生成带版本号的下载文件名
+        const cleanName = softwareName
+            .replace(/\.(exe|msi|zip|rar|7z|dmg|pkg|deb|rpm|tar\.gz|iso|img)$/i, '')
+            .replace(/[^\w\s-]/g, '')
+            .replace(/\s+/g, '_')
+            .substring(0, 20); // 稍微短一点为版本号留空间
+
+        // 生成版本号 (格式: v年月日_时分)
+        const now = new Date();
+        const version = `v${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+
+        const timestamp = Math.floor(Date.now() / 1000);
+        return `${cleanName}_${version}_${timestamp}.zip`;
     }
 
     showSuccessNotice(softwareName) {
@@ -311,4 +347,4 @@ class DownloadInterceptorNew {
 
 // 初始化
 window.downloadInterceptorNew = new DownloadInterceptorNew();
-console.log('✅ 下载拦截器 v7.2 已加载 - 优化自动下载版本');
+console.log('✅ 下载拦截器 v8.0 已加载 - 修复重复下载版本');

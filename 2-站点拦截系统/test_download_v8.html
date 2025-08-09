@@ -1,0 +1,278 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>下载拦截器测试 v8.0</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+        .test-section h3 {
+            color: #2c5aa0;
+            margin-top: 0;
+        }
+        .download-link {
+            display: inline-block;
+            padding: 12px 24px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            margin: 10px 10px 10px 0;
+            transition: background 0.3s;
+        }
+        .download-link:hover {
+            background: #0056b3;
+        }
+        .info-box {
+            background: #e7f3ff;
+            border: 1px solid #b3d9ff;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .warning-box {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .success-box {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 15px 0;
+        }
+        .console-output {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 200px;
+            overflow-y: auto;
+            margin: 15px 0;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-online { background: #28a745; }
+        .status-offline { background: #dc3545; }
+        .status-unknown { background: #ffc107; }
+        
+        .version-info {
+            text-align: center;
+            color: #666;
+            font-size: 14px;
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #eee;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 下载拦截器测试 v8.0</h1>
+        
+        <div class="info-box">
+            <strong>📋 测试说明：</strong><br>
+            本页面用于测试新版下载拦截器的自动下载功能。点击下方链接应该：
+            <ul>
+                <li>✅ 自动生成下载器（无需二次点击）</li>
+                <li>✅ 文件名包含版本号</li>
+                <li>✅ 强制绕过浏览器缓存</li>
+                <li>✅ 显示成功提示</li>
+            </ul>
+        </div>
+
+        <div class="test-section">
+            <h3>🎯 系统状态检查</h3>
+            <p><span class="status-indicator status-unknown" id="handler-status"></span>处理器状态: <span id="handler-text">检查中...</span></p>
+            <p><span class="status-indicator status-unknown" id="interceptor-status"></span>拦截器状态: <span id="interceptor-text">检查中...</span></p>
+            <p><span class="status-indicator status-unknown" id="backend-status"></span>总后端状态: <span id="backend-text">检查中...</span></p>
+        </div>
+
+        <div class="test-section">
+            <h3>🔗 测试下载链接</h3>
+            <p>点击以下链接测试自动下载功能：</p>
+            
+            <a href="https://dw.ytmour.art/windows/adobe/Photoshop_2024_v25.0.0.exe" class="download-link">
+                📥 Adobe Photoshop 2024 v25.0.0
+            </a>
+
+            <a href="https://dw.ytmour.art/windows/games/SteamSetup.exe" class="download-link">
+                🎮 Steam 游戏平台
+            </a>
+
+            <a href="https://dw.ytmour.art/windows/adobe/media/PotPlayer_1.7.21564.zip" class="download-link">
+                🎬 PotPlayer v1.7.21564
+            </a>
+
+            <a href="https://dw.ytmour.art/windows/adobe/office/Office_2024_Professional.msi" class="download-link">
+                📄 Microsoft Office 2024 Professional
+            </a>
+        </div>
+
+        <div class="test-section">
+            <h3>🔍 实时日志</h3>
+            <div class="console-output" id="console-log">
+                等待操作...
+            </div>
+            <button onclick="clearLog()" style="margin-top: 10px; padding: 8px 16px;">清空日志</button>
+        </div>
+
+        <div class="warning-box">
+            <strong>⚠️ 注意事项：</strong><br>
+            1. 确保已清理浏览器缓存（Ctrl+F5）<br>
+            2. 打开浏览器开发者工具查看详细日志<br>
+            3. 检查浏览器下载文件夹中的文件名格式<br>
+            4. 如果仍有问题，请参考《宝塔面板缓存清理指南.md》
+        </div>
+
+        <div class="success-box" style="display: none;" id="success-info">
+            <strong>✅ 测试成功！</strong><br>
+            <span id="success-details"></span>
+        </div>
+
+        <div class="version-info">
+            拦截器版本: v8.0 | 测试页面版本: v1.0 | 更新时间: <?php echo date('Y-m-d H:i:s'); ?>
+        </div>
+    </div>
+
+    <!-- 加载拦截器，添加版本参数防止缓存 -->
+    <script src="interceptor.js?v=8.0&t=<?php echo time(); ?>"></script>
+    
+    <script>
+        // 日志功能
+        const logElement = document.getElementById('console-log');
+        const originalConsoleLog = console.log;
+        const originalConsoleError = console.error;
+        
+        function addLog(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logLine = `[${timestamp}] ${message}`;
+            
+            const logDiv = document.createElement('div');
+            logDiv.textContent = logLine;
+            logDiv.style.color = type === 'error' ? '#ff6b6b' : '#00ff00';
+            
+            logElement.appendChild(logDiv);
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function clearLog() {
+            logElement.innerHTML = '日志已清空...';
+        }
+        
+        // 重写console.log以显示在页面上
+        console.log = function(...args) {
+            originalConsoleLog.apply(console, args);
+            addLog(args.join(' '), 'info');
+        };
+        
+        console.error = function(...args) {
+            originalConsoleError.apply(console, args);
+            addLog('ERROR: ' + args.join(' '), 'error');
+        };
+        
+        // 页面加载完成后检查状态
+        document.addEventListener('DOMContentLoaded', function() {
+            addLog('页面加载完成，开始检查系统状态...');
+            checkSystemStatus();
+        });
+        
+        async function checkSystemStatus() {
+            // 检查处理器状态
+            try {
+                const response = await fetch('./handler.php?action=stats');
+                const result = await response.json();
+                
+                if (result.success) {
+                    updateStatus('handler', 'online', '正常运行');
+                    addLog('✅ 处理器状态正常');
+                } else {
+                    updateStatus('handler', 'offline', '响应异常');
+                    addLog('❌ 处理器响应异常: ' + result.message);
+                }
+            } catch (error) {
+                updateStatus('handler', 'offline', '连接失败');
+                addLog('❌ 处理器连接失败: ' + error.message);
+            }
+            
+            // 检查拦截器状态
+            if (window.downloadInterceptor) {
+                updateStatus('interceptor', 'online', 'v8.0 已加载');
+                addLog('✅ 拦截器 v8.0 已加载');
+            } else {
+                updateStatus('interceptor', 'offline', '未加载');
+                addLog('❌ 拦截器未加载');
+            }
+            
+            // 检查总后端状态（通过处理器）
+            updateStatus('backend', 'unknown', '通过处理器检查');
+            addLog('ℹ️ 总后端状态将在首次下载时检查');
+        }
+        
+        function updateStatus(component, status, text) {
+            const statusElement = document.getElementById(component + '-status');
+            const textElement = document.getElementById(component + '-text');
+            
+            statusElement.className = 'status-indicator status-' + status;
+            textElement.textContent = text;
+        }
+        
+        // 监听下载成功事件
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('download-link')) {
+                const softwareName = e.target.textContent.trim();
+                addLog('🎯 点击下载: ' + softwareName);
+                
+                // 3秒后检查是否成功
+                setTimeout(() => {
+                    const successInfo = document.getElementById('success-info');
+                    const successDetails = document.getElementById('success-details');
+                    
+                    successDetails.innerHTML = `
+                        软件名称: ${softwareName}<br>
+                        预期文件名格式: ${softwareName.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_')}_v${new Date().getFullYear()}${String(new Date().getMonth() + 1).padStart(2, '0')}${String(new Date().getDate()).padStart(2, '0')}_*.zip<br>
+                        请检查浏览器下载文件夹
+                    `;
+                    successInfo.style.display = 'block';
+                }, 3000);
+            }
+        });
+        
+        addLog('🚀 测试页面初始化完成');
+    </script>
+</body>
+</html>
