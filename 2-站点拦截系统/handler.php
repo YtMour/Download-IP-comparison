@@ -121,7 +121,8 @@ function handleRealGenerate($config, $fileUrl, $softwareName, $userIP) {
     // 使用正确的API格式 - 根据总后台API代码
     $postData = [
         'file_url' => $fileUrl,
-        'software_name' => $softwareName
+        'software_name' => $softwareName,
+        'user_ip' => $userIP  // 添加用户IP字段
     ];
 
     // 正确的API端点

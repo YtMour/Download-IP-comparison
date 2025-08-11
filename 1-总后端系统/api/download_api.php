@@ -160,7 +160,13 @@ class UnifiedDownloadAPI {
     public function createDownload() {
         $fileUrl = $_POST['file_url'] ?? '';
         $softwareName = $_POST['software_name'] ?? '';
-        $clientIP = $this->getClientIP();
+
+        // 优先使用前端传递的用户IP，如果没有则使用服务器检测的IP
+        $userIP = $_POST['user_ip'] ?? '';
+        $clientIP = !empty($userIP) ? $userIP : $this->getClientIP();
+
+        // 记录IP获取信息用于调试
+        $this->log("IP获取: 前端传递IP=$userIP, 服务器检测IP=" . $this->getClientIP() . ", 最终使用IP=$clientIP");
         
         if (empty($fileUrl) || empty($softwareName)) {
             throw new Exception('缺少必要参数');
@@ -298,54 +304,52 @@ class UnifiedDownloadAPI {
             return;
         }
         
-        // 执行IP验证 - 新逻辑：查询IP是否存在于数据库中
-        // 查询当前IP是否存在于数据库的IP库中
-        $ipExistsStmt = $this->db->prepare("
-            SELECT COUNT(*) as count
-            FROM {$this->dbManager->getTableName('downloads')}
-            WHERE original_ip = ?
-        ");
-        $ipExistsStmt->execute([$currentIP]);
-        $ipExists = $ipExistsStmt->fetchColumn() > 0;
+        // 执行IP验证 - 修复逻辑：正确的IP验证流程
+        // 1. 检查当前IP与原始IP是否匹配
+        if ($currentIP === $record['original_ip']) {
+            // IP完全匹配 - 验证通过
+            $this->log("IP地址匹配，验证通过: 原始IP={$record['original_ip']}, 当前IP=$currentIP");
 
-        if ($ipExists) {
-            // IP存在于数据库 - 执行完整验证逻辑
-            $this->log("IP存在于数据库，执行验证逻辑: 当前IP=$currentIP");
-
-            // 这里可以添加更多验证逻辑，比如：
-            // - 检查下载时间限制
-            // - 检查用户行为模式
-            // - 检查设备指纹等
-            // - 检查该IP的下载历史
-
-            $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_EXISTS_VERIFIED');
+            $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_MATCH');
 
             $this->sendResponse([
                 'S' => 1,
-                'result' => 'IP_EXISTS_VERIFIED',
-                'message' => 'IP存在于数据库，执行完整验证',
+                'result' => 'IP_MATCH',
+                'message' => 'IP地址验证通过',
                 'file_url' => $record['file_url'],
                 'software_name' => $record['software_name'],
                 'site' => $record['site_name']
             ]);
+            return;
+        }
 
-        } else {
-            // IP不存在于数据库 - 跳过验证逻辑，直接允许下载
-            $this->log("IP不存在于数据库，跳过验证逻辑直接下载: 当前IP=$currentIP");
+        // 2. IP不匹配 - 检查是否允许不匹配的IP下载
+        $allowMismatch = $this->config['ip_verification']['allow_ip_mismatch'] ?? true;
 
-            // 记录IP不存在的情况，但不执行复杂验证
-            $this->recordVerification($record['id'], $token, $currentIP, 'IP_NOT_EXISTS_SKIP_VERIFICATION');
+        if ($allowMismatch) {
+            // 允许IP不匹配的下载
+            $this->log("IP地址不匹配但允许下载: 原始IP={$record['original_ip']}, 当前IP=$currentIP");
 
-            // 简单更新下载记录，不执行额外验证
-            $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_NOT_EXISTS_SKIP_VERIFICATION');
+            $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_MISMATCH_ALLOWED');
 
             $this->sendResponse([
                 'S' => 1,
-                'result' => 'IP_NOT_EXISTS_SKIP_VERIFICATION',
-                'message' => 'IP不存在于数据库，跳过验证直接下载',
+                'result' => 'IP_MISMATCH_ALLOWED',
+                'message' => 'IP地址不匹配，但允许下载',
                 'file_url' => $record['file_url'],
                 'software_name' => $record['software_name'],
                 'site' => $record['site_name']
+            ]);
+        } else {
+            // 严格模式 - 拒绝IP不匹配的下载
+            $this->log("IP地址不匹配，拒绝下载: 原始IP={$record['original_ip']}, 当前IP=$currentIP");
+
+            $this->recordVerification($record['id'], $token, $currentIP, 'IP_MISMATCH_STRICT');
+
+            $this->sendResponse([
+                'S' => 0,
+                'result' => 'IP_MISMATCH_STRICT',
+                'message' => 'IP地址不匹配，下载被拒绝'
             ]);
         }
     }
@@ -488,10 +492,18 @@ site_key = {$this->currentSite['site_key']}";
         
         $zip = new ZipArchive();
         if ($zip->open($zipPath, ZipArchive::CREATE) === TRUE) {
-            $zip->addFile('../downloader.exe', 'downloader.exe');
+            // 修复下载器路径 - 指向正确的downloader.exe位置
+            $downloaderPath = '../downloader/downloader.exe';
+
+            // 检查文件是否存在
+            if (!file_exists($downloaderPath)) {
+                throw new Exception("下载器文件不存在: $downloaderPath");
+            }
+
+            $zip->addFile($downloaderPath, 'downloader.exe');
             $zip->addFromString('config.ini', $configContent);
             $zip->close();
-            
+
             return "downloads/$zipFilename";
         } else {
             throw new Exception('创建ZIP文件失败');

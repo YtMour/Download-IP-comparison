@@ -114,11 +114,13 @@ class DownloadManager:
             if not current_ip:
                 return False, "❌ 无法获取当前IP地址"
 
-            # 构建验证请求 - 基于原版参数格式
+            # 构建验证请求 - 基于数据库表结构分析
             verify_data = {
+                'action': 'verify',
                 'token': token,
                 'current_ip': current_ip,
-                'action': 'verify'
+                'original_ip': current_ip,  # 对应 msd_downloads.original_ip
+                'ip_address': current_ip,   # 对应 msd_system_logs.ip_address
             }
 
             headers = {
@@ -126,21 +128,41 @@ class DownloadManager:
                 'User-Agent': 'SecureDownloader/2.0'
             }
 
-            # 添加API密钥
+            # 添加API密钥和站点信息
             try:
                 api_key = self.config.get('server', 'api_key', fallback='')
                 if api_key:
                     headers['X-API-Key'] = api_key
                     verify_data['api_key'] = api_key
-            except:
-                pass
+
+                site_key = self.config.get('info', 'site_key', fallback='')
+                if site_key:
+                    verify_data['site_key'] = site_key
+
+                site = self.config.get('info', 'site', fallback='')
+                if site:
+                    verify_data['site'] = site
+            except Exception as e:
+                print(f"⚠️ 配置读取警告: {e}")
+
+            # 确保verify_url不包含action参数
+            if '?action=verify' in verify_url:
+                verify_url = verify_url.replace('?action=verify', '')
+                print(f"🔧 修正验证URL: {verify_url}")
 
             response = self.session.post(verify_url, data=verify_data, headers=headers, timeout=30)
+
+            # 简化的调试信息（仅在需要时启用）
+            # print(f"🔍 验证请求: {verify_url}")
+            # print(f"🔍 当前IP: {current_ip}")
+            # print(f"🔍 响应: {response.text}")
 
             # 处理响应 - 基于原版状态码
             try:
                 result = response.json()
+                print(f"🔍 解析结果: {result}")
             except:
+                print(f"🔍 JSON解析失败，原始响应: {response.text}")
                 if response.status_code == 401:
                     return False, "❌ IP验证失败，程序退出"
                 elif response.status_code == 404:
@@ -148,8 +170,8 @@ class DownloadManager:
                 else:
                     return False, f"⚠️ 验证服务器响应错误: {response.status_code}"
 
-            # 基于原版状态码处理
-            if result.get('S') == 1 or result.get('success'):
+            # 基于原版状态码处理 - 修复验证逻辑
+            if result.get('S') == 1 or result.get('success') == True:
                 result_type = result.get('result', '')
                 message = result.get('message', '')
 
@@ -159,18 +181,42 @@ class DownloadManager:
                     return True, f"⚠️ IP地址不匹配，但允许下载 (当前IP: {current_ip})"
                 elif result_type == 'IP_VERIFICATION_DISABLED':
                     return True, f"⚠️ 跳过验证，尝试直接下载... (IP: {current_ip})"
+                elif result_type == 'IP_NOT_EXISTS_SKIP_VERIFICATION':
+                    return True, f"⚠️ IP不存在于数据库，跳过验证直接下载 (IP: {current_ip})"
                 elif result_type == 'TOKEN_EXPIRED':
                     return False, "⏰ 下载令牌已过期，请重新获取下载器"
                 elif result_type == 'MAX_DOWNLOADS_EXCEEDED':
                     return False, f"❌ IP验证失败，下载终止 (IP: {current_ip})"
+                elif result_type == 'IP_MISMATCH_STRICT':
+                    return False, f"❌ IP地址不匹配，下载被拒绝 (当前IP: {current_ip})"
                 else:
-                    return True, f"✅ 验证通过 (IP: {current_ip})"
+                    # 如果有result_type但不在已知列表中，记录并返回失败
+                    if result_type:
+                        return False, f"❌ 未知验证结果: {result_type} (IP: {current_ip})"
+                    else:
+                        return True, f"✅ 验证通过 (IP: {current_ip})"
             else:
+                # 验证失败的情况
                 error_msg = result.get('message', '验证失败')
-                return False, f"❌ {error_msg}"
+                result_type = result.get('result', '')
+                if result_type:
+                    return False, f"❌ {error_msg} - {result_type} (IP: {current_ip})"
+                else:
+                    return False, f"❌ {error_msg} (IP: {current_ip})"
 
         except Exception as e:
-            return False, f"⚠️ 验证过程异常: {str(e)}"
+            error_str = str(e)
+            # 处理常见的网络错误
+            if "Connection aborted" in error_str or "ConnectionResetError" in error_str:
+                return False, "🌐 网络连接错误，请检查网络状态后重试"
+            elif "timeout" in error_str.lower():
+                return False, "⏰ 网络连接超时，请稍后重试"
+            elif "Connection refused" in error_str:
+                return False, "🚫 服务器拒绝连接，请稍后重试"
+            elif "Name or service not known" in error_str or "getaddrinfo failed" in error_str:
+                return False, "🌐 DNS解析失败，请检查网络连接"
+            else:
+                return False, f"⚠️ 验证过程异常: {error_str}"
 
     def verify_ip(self):
         """验证IP地址 - 兼容性方法"""
@@ -197,10 +243,12 @@ class DownloadManager:
             downloads_dir = os.path.join(os.path.expanduser("~"), "Downloads")
             os.makedirs(downloads_dir, exist_ok=True)
 
-            # 使用软件名称作为文件名，避免重复.exe
-            if software_name.lower().endswith('.exe'):
+            # 智能处理文件扩展名，支持所有文件类型
+            if '.' in software_name and len(software_name.split('.')[-1]) <= 10:
+                # 如果软件名包含扩展名（扩展名长度不超过10个字符），保持原有扩展名
                 filename = software_name
             else:
+                # 如果没有扩展名或扩展名异常长，默认添加.exe
                 filename = f"{software_name}.exe"
             save_path = os.path.join(downloads_dir, filename)
 
@@ -245,7 +293,20 @@ class DownloadManager:
             return True, f"下载完成: {os.path.basename(save_path)}"
             
         except Exception as e:
-            return False, f"下载失败: {str(e)}"
+            error_str = str(e)
+            # 处理常见的网络错误
+            if "Connection aborted" in error_str or "ConnectionResetError" in error_str:
+                return False, "🌐 网络连接错误，请检查网络状态后重试"
+            elif "timeout" in error_str.lower():
+                return False, "⏰ 下载超时，请稍后重试"
+            elif "Connection refused" in error_str:
+                return False, "🚫 服务器拒绝连接，请稍后重试"
+            elif "Name or service not known" in error_str or "getaddrinfo failed" in error_str:
+                return False, "🌐 DNS解析失败，请检查网络连接"
+            elif "HTTP" in error_str and ("404" in error_str or "403" in error_str):
+                return False, "📂 文件不存在或访问被拒绝"
+            else:
+                return False, f"下载失败: {error_str}"
 
 class IPDownloaderGUI:
     def __init__(self):
@@ -387,12 +448,40 @@ class IPDownloaderGUI:
                 self.log_message("✅ 验证通过")
                 self.log_message(f"⚠️ {message}")
                 self.log_message("📁 文件地址已更新")
+
+                # 在IP匹配成功或IP验证被禁用时显示提示弹窗（用于测试后期验证逻辑）
+                if "IP地址验证通过" in message or "跳过验证" in message:
+                    self.show_verification_notification(message)
+
+                should_download = True
             else:
                 self.log_message(f"❌ {message}")
-                self.log_message("⚠️ 跳过验证，尝试直接下载...")
 
-            # 步骤2: 文件下载
-            self.log_message("📥 步骤 2/2: 文件下载")
+                # 判断是否应该继续下载
+                if "网络连接错误" in message or "网络连接超时" in message or "服务器拒绝连接" in message or "DNS解析失败" in message:
+                    # 网络错误，不继续下载
+                    should_download = False
+                    self.log_message("🚫 由于网络错误，下载已终止")
+                elif "令牌已过期" in message or "下载终止" in message or "下载被拒绝" in message:
+                    # 严重错误，不继续下载
+                    should_download = False
+                    self.log_message("🚫 验证失败，下载已终止")
+                else:
+                    # 其他情况，尝试直接下载
+                    should_download = True
+                    self.log_message("⚠️ 跳过验证，尝试直接下载...")
+
+            if should_download:
+                # 步骤2: 文件下载
+                self.log_message("📥 步骤 2/2: 文件下载")
+            else:
+                # 验证失败，不进行下载
+                self.manager.is_downloading = False
+                self.download_btn.config(state="normal")
+                self.cancel_btn.config(state="disabled")
+                self.progress_var.set(0)
+                self.progress_label.config(text="验证失败")
+                return
 
             # 开始下载
             self.manager.is_downloading = True
@@ -455,6 +544,34 @@ class IPDownloaderGUI:
         
         self.progress_label.config(text=progress_text)
     
+    def show_verification_notification(self, verification_message):
+        """显示验证提示弹窗 - 用于测试后期验证逻辑触发"""
+
+        # 根据验证状态确定提示内容
+        if "IP地址验证通过" in verification_message:
+            # IP匹配成功的情况
+            dialog_title = "🎯 IP验证成功"
+            dialog_message = f"IP地址验证通过！\n\n{verification_message}\n\n✅ 触发额外验证逻辑\n（后期可在此处添加无感验证）"
+            self.log_message("🔔 IP验证成功，触发额外验证逻辑")
+        elif "跳过验证" in verification_message:
+            # IP验证被禁用的情况
+            dialog_title = "🔐 安全验证触发"
+            dialog_message = f"IP验证已禁用！\n\n{verification_message}\n\n✅ 触发额外验证逻辑\n（后期可在此处添加无感验证）"
+            self.log_message("🔔 IP验证被禁用，触发额外验证逻辑")
+        else:
+            # 其他情况
+            dialog_title = "🔐 验证逻辑触发"
+            dialog_message = f"验证完成！\n\n{verification_message}\n\n✅ 触发额外验证逻辑\n（后期可在此处添加无感验证）"
+            self.log_message("🔔 触发额外验证逻辑")
+
+        # 显示信息提示框（只有确定按钮）
+        messagebox.showinfo(
+            dialog_title,
+            dialog_message
+        )
+
+        self.log_message("✅ 验证逻辑提示已显示，继续下载")
+
     def run(self):
         """运行GUI"""
         self.root.mainloop()
