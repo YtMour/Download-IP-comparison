@@ -10,8 +10,12 @@ console.log('🚀 下载拦截器启动 v8.0 - 强制自动下载版本');
 class DownloadInterceptor {
     constructor() {
         this.config = null;
-        this.handlerUrl = './handler.php';
-        this.isProcessing = false; // 防止重复处理
+        // 使用完整URL - 修复路径问题
+        this.handlerUrl = window.location.protocol + '//' + window.location.host + '/handler.php';
+        this.isProcessing = false;
+        this.version = 'v12.0'; // 版本号
+        console.log('🚀 下载拦截器启动', this.version);
+        console.log('🔗 Handler URL:', this.handlerUrl);
         this.init();
     }
 
@@ -26,14 +30,23 @@ class DownloadInterceptor {
 
     async loadConfig() {
         try {
+            console.log('📡 加载配置:', this.handlerUrl + '?action=config');
             const response = await fetch(this.handlerUrl + '?action=config');
-            const result = await response.json();
-            if (result.success) {
-                this.config = result.data;
-                console.log('✅ 配置加载成功:', this.config.site_name);
+
+            if (response.ok) {
+                const result = await response.json();
+                if (result.success) {
+                    this.config = result.data;
+                    console.log('✅ 配置加载成功:', this.config.site_name);
+                    console.log('🔗 存储服务器:', this.config.storage_server);
+                } else {
+                    console.error('❌ 配置响应失败:', result);
+                }
+            } else {
+                console.error('❌ 配置请求失败:', response.status, response.statusText);
             }
         } catch (error) {
-            console.error('❌ 配置加载失败:', error);
+            console.error('❌ 配置加载异常:', error.message);
         }
     }
 
@@ -59,16 +72,16 @@ class DownloadInterceptor {
             return false;
         }
 
-        // 绝对不拦截的链接
+        // 绝对不拦截的链接 - 修复排除规则
         const excludePatterns = [
-            '/downloads/',
-            'downloader',
-            'Downloader',
-            'SecureDownloader',
-            '.php',
-            'javascript:',
-            'mailto:',
-            '#'
+            '/downloads/',           // 下载目录
+            'downloader.exe',        // 下载器文件
+            'downloader.zip',        // 下载器压缩包
+            'SecureDownloader',      // 安全下载器
+            '.php',                  // PHP文件
+            'javascript:',           // JS链接
+            'mailto:',               // 邮件链接
+            '#'                      // 锚点链接
         ];
 
         for (const pattern of excludePatterns) {
@@ -78,9 +91,12 @@ class DownloadInterceptor {
             }
         }
 
-        // 只拦截特定的文件类型和路径
+        // 简化的通用拦截规则 - 拦截常见的软件文件
         const interceptPatterns = [
-            /https:\/\/dw\.ytmour\.art\/windows\/.*\.(exe|msi|zip|rar|7z)$/i
+            // 常见软件文件扩展名
+            /\.(exe|msi|zip|rar|7z|dmg|pkg|deb|rpm|tar\.gz|tar\.xz)$/i,
+            // 常见软件路径
+            /\/(windows|software|Software|downloads|files|apps)\/.*\.(exe|msi|zip|rar|7z)$/i
         ];
 
         for (const pattern of interceptPatterns) {
@@ -165,7 +181,10 @@ class DownloadInterceptor {
             
             console.log('📤 发送请求:', requestData);
 
-            const response = await fetch(this.handlerUrl + '?action=generate', {
+            const fullRequestUrl = this.handlerUrl + '?action=generate';
+            console.log('📤 完整请求URL:', fullRequestUrl);
+
+            const response = await fetch(fullRequestUrl, {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -176,7 +195,7 @@ class DownloadInterceptor {
 
             const responseText = await response.text();
             console.log('📥 服务器响应:', responseText);
-            
+
             let result;
             try {
                 result = JSON.parse(responseText);
@@ -184,19 +203,25 @@ class DownloadInterceptor {
                 throw new Error('服务器响应格式错误: ' + responseText.substring(0, 100));
             }
 
+            console.log('📥 解析后的响应:', result);
+            console.log('📥 响应字段:', Object.keys(result));
+
             if (result.success) {
                 console.log('✅ 下载器生成成功！');
+                console.log('📥 完整响应数据:', result);
                 console.log('令牌:', result.token || '未知');
                 console.log('过期时间:', result.expires_at || '未知');
-                
-                // 获取下载链接
+
+                // 获取下载链接 - 使用配置中的storage_server
                 const downloadUrl = result.download_url;
                 if (downloadUrl) {
-                    const fullUrl = downloadUrl.startsWith('http') 
-                        ? downloadUrl 
-                        : (this.config.storage_server || 'https://dw.ytmour.art') + '/' + downloadUrl;
-                    
+                    // 使用配置中的storage_server构建完整URL
+                    const fullUrl = downloadUrl.startsWith('http')
+                        ? downloadUrl
+                        : (this.config?.storage_server || 'https://dw.ytmour.art') + '/' + downloadUrl;
+
                     console.log('📥 下载链接:', fullUrl);
+                    console.log('🔗 存储服务器:', this.config?.storage_server);
 
                     // 直接自动下载，不显示对话框
                     this.autoDownload(fullUrl, softwareName);
@@ -205,7 +230,7 @@ class DownloadInterceptor {
                     throw new Error('服务器响应中缺少下载链接');
                 }
             } else {
-                throw new Error(result.message || '生成失败');
+                throw new Error(result.message || result.msg || '生成失败');
             }
 
         } catch (error) {
@@ -229,12 +254,12 @@ class DownloadInterceptor {
 
         console.log('🔗 最终下载链接:', finalUrl);
 
-        // 使用最可靠的方法：创建隐藏的 <a> 标签并自动点击
+        // 使用原始的正确方法：创建隐藏的 <a> 标签并自动点击
         const link = document.createElement('a');
         link.href = finalUrl;
         link.download = this.generateDownloadFilename(softwareName);
         link.style.display = 'none';
-        link.target = '_self'; // 改为_self避免打开新页面
+        link.target = '_self';
 
         document.body.appendChild(link);
 
