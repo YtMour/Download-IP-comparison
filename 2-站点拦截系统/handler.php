@@ -21,7 +21,8 @@ $defaultConfig = [
     'site_name' => '分站系统',
     'site_key' => 'site',
     'api_key' => '', // 需要配置API密钥
-    'storage_server' => 'https://dw.ytmour.art'
+    'storage_server' => 'https://dw.ytmour.art',
+    'debug_mode' => false // 控制台调试日志开关
 ];
 
 // 加载配置

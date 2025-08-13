@@ -7,6 +7,17 @@ if (!isset($_SESSION['master_admin']) || $_SESSION['master_admin'] !== true) {
     exit;
 }
 
+// 加载配置
+$configFile = __DIR__ . '/config_master.php';
+if (!file_exists($configFile)) {
+    die('配置文件不存在: ' . $configFile);
+}
+
+$config = require $configFile;
+if (!$config || !is_array($config)) {
+    die('配置文件格式错误');
+}
+
 $backupDir = __DIR__ . '/../backups/';
 $action = $_POST['action'] ?? '';
 $error = '';
@@ -20,7 +31,6 @@ if (!is_dir($backupDir)) {
 // 处理操作
 if ($action === 'create_backup') {
     try {
-        $config = require 'config_master.php';
         $dbConfig = $config['database'];
         
         $backupFile = 'backup_' . date('Y-m-d_H-i-s') . '.sql';
@@ -40,7 +50,9 @@ if ($action === 'create_backup') {
         exec($command, $output, $returnCode);
         
         if ($returnCode === 0 && file_exists($backupPath) && filesize($backupPath) > 0) {
-            $success = "备份创建成功：$backupFile";
+            $_SESSION['success'] = "备份创建成功：$backupFile";
+            header('Location: ' . $_SERVER['PHP_SELF']);
+            exit;
         } else {
             $error = "备份创建失败：" . implode("\n", $output);
         }
@@ -52,9 +64,11 @@ if ($action === 'create_backup') {
 if ($action === 'delete_backup') {
     $filename = $_POST['filename'] ?? '';
     $filepath = $backupDir . basename($filename);
-    
+
     if (file_exists($filepath) && unlink($filepath)) {
-        $success = "备份文件已删除：$filename";
+        $_SESSION['success'] = "备份文件已删除：$filename";
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
     } else {
         $error = "删除备份文件失败";
     }
@@ -66,7 +80,6 @@ if ($action === 'restore_backup') {
     
     if (file_exists($filepath)) {
         try {
-            $config = require 'config_master.php';
             $dbConfig = $config['database'];
             
             $command = sprintf(
@@ -82,7 +95,9 @@ if ($action === 'restore_backup') {
             exec($command, $output, $returnCode);
             
             if ($returnCode === 0) {
-                $success = "数据库恢复成功：$filename";
+                $_SESSION['success'] = "数据库恢复成功：$filename";
+                header('Location: ' . $_SERVER['PHP_SELF']);
+                exit;
             } else {
                 $error = "数据库恢复失败：" . implode("\n", $output);
             }
@@ -92,6 +107,12 @@ if ($action === 'restore_backup') {
     } else {
         $error = "备份文件不存在";
     }
+}
+
+// 获取会话中的成功消息
+$success = $_SESSION['success'] ?? '';
+if ($success) {
+    unset($_SESSION['success']);
 }
 
 // 获取备份文件列表

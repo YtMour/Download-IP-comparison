@@ -40,10 +40,18 @@ if ($action === 'clear' && isset($logFiles[$logType])) {
     $file = $logFiles[$logType];
     if (file_exists($file) && is_writable($file)) {
         file_put_contents($file, '');
-        $success = "日志已清空";
+        $_SESSION['success'] = "日志已清空";
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?type=' . urlencode($logType));
+        exit;
     } else {
         $error = "无法清空日志文件";
     }
+}
+
+// 获取会话中的成功消息
+$success = $_SESSION['success'] ?? '';
+if ($success) {
+    unset($_SESSION['success']);
 }
 
 $currentLog = $logFiles[$logType] ?? $logFiles['system'];

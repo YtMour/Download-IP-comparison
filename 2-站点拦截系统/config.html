@@ -110,14 +110,22 @@
         <form id="config-form">
             <div class="form-group">
                 <label for="storage_server">服务器地址:</label>
-                <input type="url" id="storage_server" name="storage_server" value="https://dw.ytmour.art" required>
+                <input type="url" id="storage_server" name="storage_server" required>
                 <small>总后台服务器地址</small>
             </div>
 
             <div class="form-group">
                 <label for="api_key">API密钥 (可选):</label>
-                <input type="text" id="api_key" name="api_key" placeholder="从总后台管理面板获取">
+                <input type="text" id="api_key" name="api_key">
                 <small>留空将使用演示模式，填写后连接真实后台</small>
+            </div>
+
+            <div class="form-group">
+                <label for="debug_mode">
+                    <input type="checkbox" id="debug_mode" name="debug_mode" style="margin-right: 8px;">
+                    启用控制台调试日志
+                </label>
+                <small>开启后将在浏览器控制台显示详细的调试信息</small>
             </div>
 
             <button type="submit" class="btn btn-success">💾 保存配置</button>
@@ -161,8 +169,9 @@
                     const config = result.data;
                     
                     // 更新表单
-                    document.getElementById('storage_server').value = config.storage_server || 'https://dw.ytmour.art';
+                    document.getElementById('storage_server').value = config.storage_server || '';
                     document.getElementById('api_key').value = config.api_key || '';
+                    document.getElementById('debug_mode').checked = config.debug_mode || false;
                     
                     // 显示状态
                     let statusHtml = '';
@@ -196,14 +205,22 @@
         // 保存配置
         async function saveConfig(event) {
             event.preventDefault();
-            
+
             const statusDiv = document.getElementById('save-status');
             const formData = new FormData(event.target);
             const config = Object.fromEntries(formData);
-            
+
+            // 防止重复提交
+            const submitButton = event.target.querySelector('button[type="submit"]');
+            if (submitButton.disabled) {
+                return;
+            }
+            submitButton.disabled = true;
+            submitButton.textContent = '保存中...';
+
             try {
                 statusDiv.innerHTML = '<div class="status info">正在保存配置...</div>';
-                
+
                 const response = await fetch('./handler.php?action=config', {
                     method: 'POST',
                     headers: {
@@ -211,9 +228,9 @@
                     },
                     body: JSON.stringify(config)
                 });
-                
+
                 const result = await response.json();
-                
+
                 if (result.success) {
                     statusDiv.innerHTML = '<div class="status success">✅ 配置保存成功</div>';
                     loadConfig(); // 重新加载状态
@@ -222,14 +239,19 @@
                 }
             } catch (error) {
                 statusDiv.innerHTML = '<div class="status error">❌ 保存失败: ' + error.message + '</div>';
+            } finally {
+                // 恢复按钮状态
+                submitButton.disabled = false;
+                submitButton.textContent = '💾 保存配置';
             }
         }
 
         // 重置配置
         function resetConfig() {
             if (confirm('确定要重置为演示模式吗？')) {
-                document.getElementById('storage_server').value = 'https://dw.ytmour.art';
+                document.getElementById('storage_server').value = '';
                 document.getElementById('api_key').value = '';
+                document.getElementById('debug_mode').checked = false;
             }
         }
 

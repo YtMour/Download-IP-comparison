@@ -35,7 +35,9 @@ if ($action === 'login') {
     $password = $_POST['password'] ?? '';
     if ($password === $config['system']['master_admin_password']) {
         $_SESSION['master_admin'] = true;
-        $logged_in = true;
+        // 重定向防止刷新重复提交
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
     } else {
         $error = '密码错误';
     }
@@ -76,7 +78,10 @@ if ($logged_in && $action === 'add_site') {
 
             $stmt->execute([$siteKey, $siteName, $siteDomain, $apiKey]);
 
-            $success = "站点 $siteName 添加成功！API密钥：$apiKey";
+            $_SESSION['success'] = "站点 $siteName 添加成功！API密钥：$apiKey";
+            // 重定向防止刷新重复提交
+            header('Location: ' . $_SERVER['PHP_SELF']);
+            exit;
         } catch (Exception $e) {
             $error = "添加站点失败：" . $e->getMessage();
         }
@@ -102,7 +107,10 @@ if ($logged_in && $action === 'delete_site') {
             $result = $stmt->execute([$siteId]);
 
             if ($result && $stmt->rowCount() > 0) {
-                $success = "站点 \"$siteName\" 删除成功！";
+                $_SESSION['success'] = "站点 \"$siteName\" 删除成功！";
+                // 重定向防止刷新重复提交
+                header('Location: ' . $_SERVER['PHP_SELF']);
+                exit;
             } else {
                 $error = "站点不存在或删除失败";
             }
@@ -112,6 +120,12 @@ if ($logged_in && $action === 'delete_site') {
     } else {
         $error = "缺少站点ID";
     }
+}
+
+// 获取会话中的成功消息
+$success = $_SESSION['success'] ?? '';
+if ($success) {
+    unset($_SESSION['success']);
 }
 
 if ($logged_in && $action === 'toggle_ip_verification') {
@@ -675,12 +689,12 @@ if ($logged_in) {
 
                                 <div class="form-group">
                                     <label for="site_name">站点名称:</label>
-                                    <input type="text" name="site_name" id="site_name" placeholder="如: 主软件库" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                                    <input type="text" name="site_name" id="site_name" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
                                 </div>
 
                                 <div class="form-group">
                                     <label for="site_domain">站点域名:</label>
-                                    <input type="url" name="site_domain" id="site_domain" placeholder="https://home.ytmour.art" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
+                                    <input type="url" name="site_domain" id="site_domain" required style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;">
                                 </div>
 
                                 <button type="submit" class="btn btn-success" style="width: 100%;">🚀 创建站点</button>
@@ -693,10 +707,9 @@ if ($logged_in) {
                 <div style="margin-top: 40px; text-align: center;">
                     <h3>快速操作</h3>
                     <div style="margin-top: 20px;">
-                        <a href="database_manage.php" class="btn btn-primary">数据库管理</a>
-                        <a href="system_logs.php" class="btn btn-warning">系统日志</a>
-                        <a href="backup_manage.php" class="btn btn-success">备份管理</a>
-                        <a href="api_docs.php" class="btn btn-primary">API文档</a>
+                        <a href="database.php" class="btn btn-primary">数据库管理</a>
+                        <a href="logs.php" class="btn btn-warning">系统日志</a>
+                        <a href="backup.php" class="btn btn-success">备份管理</a>
                     </div>
                 </div>
                 

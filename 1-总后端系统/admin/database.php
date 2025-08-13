@@ -9,7 +9,16 @@ if (!isset($_SESSION['master_admin']) || $_SESSION['master_admin'] !== true) {
 }
 
 // 加载配置
-$config = require 'config_master.php';
+$configFile = __DIR__ . '/config_master.php';
+if (!file_exists($configFile)) {
+    die('配置文件不存在: ' . $configFile);
+}
+
+$config = require $configFile;
+if (!$config || !is_array($config)) {
+    die('配置文件格式错误');
+}
+
 $dbManager = new MultiSiteDatabaseManager($config);
 
 $action = $_POST['action'] ?? '';
@@ -27,7 +36,9 @@ if ($action === 'optimize') {
             $pdo->exec("OPTIMIZE TABLE $tableName");
         }
         
-        $success = "数据库优化完成";
+        $_SESSION['success'] = "数据库优化完成";
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
     } catch (Exception $e) {
         $error = "优化失败：" . $e->getMessage();
     }
@@ -57,13 +68,21 @@ if ($action === 'backup') {
         exec($command, $output, $returnCode);
         
         if ($returnCode === 0) {
-            $success = "备份完成：$backupFile";
+            $_SESSION['success'] = "备份完成：$backupFile";
+            header('Location: ' . $_SERVER['PHP_SELF']);
+            exit;
         } else {
             $error = "备份失败";
         }
     } catch (Exception $e) {
         $error = "备份失败：" . $e->getMessage();
     }
+}
+
+// 获取会话中的成功消息
+$success = $_SESSION['success'] ?? '';
+if ($success) {
+    unset($_SESSION['success']);
 }
 
 // 获取数据库统计

