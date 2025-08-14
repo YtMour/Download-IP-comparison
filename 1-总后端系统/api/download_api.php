@@ -423,13 +423,35 @@ class UnifiedDownloadAPI {
             
             $successRate = $totalVerifications > 0 ? round(($successfulVerifications / $totalVerifications) * 100, 2) : 0;
             
+            // 临时调试：检查配置文件内容
+            $configFile = __DIR__ . '/../admin/config_master.php';
+            $configContent = file_get_contents($configFile);
+            $downloaderConfig = $this->config['downloader'] ?? [];
+            $ipVerificationConfig = $this->config['ip_verification'] ?? [];
+            $showLogValue = $this->config['downloader']['show_log'] ?? true;
+            $ipEnabledValue = $this->config['ip_verification']['enabled'] ?? true;
+            $strictModeValue = $this->config['ip_verification']['strict_mode'] ?? false;
+
             $this->sendSuccess([
                 'site' => $this->currentSite['name'],
                 'total_downloads' => (int)$totalDownloads,
                 'today_downloads' => (int)$todayDownloads,
                 'success_rate' => $successRate,
-                'ip_verification_enabled' => $this->config['ip_verification']['enabled'],
-                'strict_mode' => $this->config['ip_verification']['strict_mode']
+                'ip_verification_enabled' => $ipEnabledValue,
+                'strict_mode' => $strictModeValue,
+                'downloader_show_log' => $showLogValue,
+                // 临时调试字段 - 配置文件信息
+                'debug_config_file' => $configFile,
+                'debug_config_exists' => file_exists($configFile),
+                'debug_config_size' => strlen($configContent),
+                'debug_config_modified' => date('Y-m-d H:i:s', filemtime($configFile)),
+                // 临时调试字段 - 下载器配置
+                'debug_downloader_config' => $downloaderConfig,
+                'debug_show_log_raw' => $this->config['downloader']['show_log'] ?? 'NOT_SET',
+                // 临时调试字段 - IP验证配置
+                'debug_ip_verification_config' => $ipVerificationConfig,
+                'debug_ip_enabled_raw' => $this->config['ip_verification']['enabled'] ?? 'NOT_SET',
+                'debug_strict_mode_raw' => $this->config['ip_verification']['strict_mode'] ?? 'NOT_SET'
             ]);
             
         } catch (Exception $e) {
@@ -458,6 +480,7 @@ class UnifiedDownloadAPI {
     private function generateConfigFile($token, $softwareName, $fileUrl) {
         $verifyUrl = $this->config['storage_server']['domain'] . '/api/download_api.php?action=verify';
 
+        // 不再生成[ui]配置，完全依赖后台动态控制
         return "[download]
 token = $token
 software_name = $softwareName

@@ -22,7 +22,8 @@ $defaultConfig = [
     'site_key' => 'site',
     'api_key' => '', // 需要配置API密钥
     'storage_server' => 'https://dw.ytmour.art',
-    'debug_mode' => false // 控制台调试日志开关
+    'debug_mode' => false, // 全局调试日志开关
+    'debug_ips' => ['127.0.0.1', '::1'] // 允许调试的IP地址列表
 ];
 
 // 加载配置
@@ -48,6 +49,28 @@ function saveConfig($config) {
     return file_put_contents($configFile, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
 }
 
+// 检查IP是否允许调试
+function isDebugAllowedForIP($config, $userIP) {
+    // 如果全局调试模式开启，所有IP都允许
+    if ($config['debug_mode']) {
+        return true;
+    }
+
+    // 检查IP是否在允许列表中
+    $debugIPs = $config['debug_ips'] ?? ['127.0.0.1', '::1'];
+    return in_array($userIP, $debugIPs);
+}
+
+// 调试日志函数
+function debugLog($message, $config = null, $userIP = null) {
+    if ($config && $userIP && isDebugAllowedForIP($config, $userIP)) {
+        error_log($message);
+    } elseif (!$config) {
+        // 如果没有配置信息，默认记录（向后兼容）
+        error_log($message);
+    }
+}
+
 $config = loadConfig();
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
 
@@ -71,7 +94,9 @@ switch ($action) {
 function handleGenerate($config) {
     // 获取原始输入
     $rawInput = file_get_contents('php://input');
-    error_log("原始输入数据: " . $rawInput);
+    $userIP = $_SERVER['REMOTE_ADDR'];
+
+    debugLog("原始输入数据: " . $rawInput, $config, $userIP);
 
     // 尝试解析JSON
     $input = json_decode($rawInput, true);
@@ -79,7 +104,7 @@ function handleGenerate($config) {
     // 如果JSON解析失败，尝试POST数据
     if (!$input) {
         $input = $_POST;
-        error_log("JSON解析失败，使用POST数据: " . json_encode($_POST));
+        debugLog("JSON解析失败，使用POST数据: " . json_encode($_POST), $config, $userIP);
     }
 
     $fileUrl = trim($input['file_url'] ?? '');
@@ -87,7 +112,7 @@ function handleGenerate($config) {
     $userIP = $input['user_ip'] ?? $_SERVER['REMOTE_ADDR'];
 
     // 记录详细调试信息
-    error_log("处理器收到参数: " . json_encode([
+    debugLog("处理器收到参数: " . json_encode([
         'raw_input_length' => strlen($rawInput),
         'json_decode_result' => $input,
         'file_url' => $fileUrl,
@@ -95,10 +120,10 @@ function handleGenerate($config) {
         'user_ip' => $userIP,
         'file_url_length' => strlen($fileUrl),
         'software_name_length' => strlen($softwareName)
-    ]));
+    ]), $config, $userIP);
 
     if (empty($fileUrl) || empty($softwareName)) {
-        error_log("参数验证失败: fileUrl='$fileUrl' (" . strlen($fileUrl) . "), softwareName='$softwareName' (" . strlen($softwareName) . ")");
+        debugLog("参数验证失败: fileUrl='$fileUrl' (" . strlen($fileUrl) . "), softwareName='$softwareName' (" . strlen($softwareName) . ")", $config, $userIP);
         sendError('缺少必要参数: file_url=' . $fileUrl . ', software_name=' . $softwareName, 400);
         return;
     }
@@ -107,12 +132,12 @@ function handleGenerate($config) {
     $apiKey = trim($config['api_key'] ?? '');
 
     if (empty($apiKey)) {
-        error_log("❌ API密钥未配置");
+        debugLog("❌ API密钥未配置", $config, $userIP);
         sendError('API密钥未配置，请联系管理员', 500);
         return;
     }
 
-    error_log("🔗 连接到总后台: " . $config['storage_server']);
+    debugLog("🔗 连接到总后台: " . $config['storage_server'], $config, $userIP);
     handleRealGenerate($config, $fileUrl, $softwareName, $userIP);
 }
 
@@ -205,31 +230,39 @@ function handleStats($config) {
 
 function handleConfig() {
     global $config;
-    
+
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         // 保存配置
         $input = json_decode(file_get_contents('php://input'), true) ?: $_POST;
-        
+
         $storageServer = trim($input['storage_server'] ?? $config['storage_server']);
         $apiKey = trim($input['api_key'] ?? $config['api_key']);
+        $debugMode = isset($input['debug_mode']) ? (bool)$input['debug_mode'] : $config['debug_mode'];
+        $debugIPs = $input['debug_ips'] ?? $config['debug_ips'] ?? ['127.0.0.1', '::1'];
 
         $newConfig = [
             'site_name' => '分站系统',
             'site_key' => 'site_' . substr(md5($storageServer), 0, 8),
             'api_key' => $apiKey,
-            'storage_server' => $storageServer
+            'storage_server' => $storageServer,
+            'debug_mode' => $debugMode,
+            'debug_ips' => $debugIPs
         ];
 
-        error_log("保存配置: api_key='" . (empty($apiKey) ? '未配置' : '已配置') . "'");
-        
+        error_log("保存配置: api_key='" . (empty($apiKey) ? '未配置' : '已配置') . "', debug_mode=" . ($debugMode ? 'true' : 'false'));
+
         if (saveConfig($newConfig)) {
             echo json_encode(['success' => true, 'message' => '配置保存成功'], JSON_UNESCAPED_UNICODE);
         } else {
             sendError('配置保存失败', 500);
         }
     } else {
-        // 获取配置
-        echo json_encode(['success' => true, 'data' => $config], JSON_UNESCAPED_UNICODE);
+        // 获取配置，并根据IP判断调试模式
+        $userIP = $_GET['user_ip'] ?? $_SERVER['REMOTE_ADDR'];
+        $configWithDebug = $config;
+        $configWithDebug['debug_mode_for_ip'] = isDebugAllowedForIP($config, $userIP);
+
+        echo json_encode(['success' => true, 'data' => $configWithDebug], JSON_UNESCAPED_UNICODE);
     }
 }
 

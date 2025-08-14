@@ -48,6 +48,11 @@ return [
         'cleanup_expired_hours' => 48
     ],
 
+    // 下载器配置
+    'downloader' => [
+        'show_log' => true  // 控制下载器是否显示操作日志窗口
+    ],
+
     // 安全配置
     'security' => [
         'api_rate_limit' => 1000,

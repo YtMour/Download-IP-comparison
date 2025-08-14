@@ -87,6 +87,75 @@
             color: #856404;
             border: 1px solid #ffeaa7;
         }
+
+        /* 开关按钮样式 */
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 34px;
+            margin-left: 10px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: .4s;
+            border-radius: 34px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 26px;
+            width: 26px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: .4s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #007bff;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .debug-section {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+
+        .debug-ips {
+            margin-top: 15px;
+        }
+
+        .debug-ips textarea {
+            width: 100%;
+            height: 80px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -120,12 +189,25 @@
                 <small>留空将使用演示模式，填写后连接真实后台</small>
             </div>
 
-            <div class="form-group">
-                <label for="debug_mode">
-                    <input type="checkbox" id="debug_mode" name="debug_mode" style="margin-right: 8px;">
-                    启用控制台调试日志
-                </label>
-                <small>开启后将在浏览器控制台显示详细的调试信息</small>
+            <div class="debug-section">
+                <h4>🐛 调试模式配置</h4>
+
+                <div class="form-group">
+                    <label for="debug_mode" style="display: flex; align-items: center;">
+                        全局调试模式
+                        <label class="switch">
+                            <input type="checkbox" id="debug_mode" name="debug_mode">
+                            <span class="slider"></span>
+                        </label>
+                    </label>
+                    <small>开启后所有IP都可以看到调试日志</small>
+                </div>
+
+                <div class="debug-ips">
+                    <label for="debug_ips">允许调试的IP地址 (每行一个):</label>
+                    <textarea id="debug_ips" name="debug_ips" placeholder="127.0.0.1&#10;::1&#10;192.168.1.100"></textarea>
+                    <small>当全局调试模式关闭时，只有这些IP可以看到调试日志</small>
+                </div>
             </div>
 
             <button type="submit" class="btn btn-success">💾 保存配置</button>
@@ -172,6 +254,10 @@
                     document.getElementById('storage_server').value = config.storage_server || '';
                     document.getElementById('api_key').value = config.api_key || '';
                     document.getElementById('debug_mode').checked = config.debug_mode || false;
+
+                    // 更新调试IP列表
+                    const debugIPs = config.debug_ips || ['127.0.0.1', '::1'];
+                    document.getElementById('debug_ips').value = debugIPs.join('\n');
                     
                     // 显示状态
                     let statusHtml = '';
@@ -209,6 +295,13 @@
             const statusDiv = document.getElementById('save-status');
             const formData = new FormData(event.target);
             const config = Object.fromEntries(formData);
+
+            // 处理checkbox - FormData不会包含未选中的checkbox
+            config.debug_mode = document.getElementById('debug_mode').checked;
+
+            // 处理调试IP列表
+            const debugIPsText = document.getElementById('debug_ips').value;
+            config.debug_ips = debugIPsText.split('\n').map(ip => ip.trim()).filter(ip => ip.length > 0);
 
             // 防止重复提交
             const submitButton = event.target.querySelector('button[type="submit"]');
@@ -252,6 +345,7 @@
                 document.getElementById('storage_server').value = '';
                 document.getElementById('api_key').value = '';
                 document.getElementById('debug_mode').checked = false;
+                document.getElementById('debug_ips').value = '127.0.0.1\n::1';
             }
         }
 

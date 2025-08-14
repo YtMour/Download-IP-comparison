@@ -8,6 +8,42 @@ session_start();
 // 加载配置和数据库
 require_once 'database_manager.php';
 
+// 同步站点数据到配置文件
+function syncSitesToConfig($pdo, $dbManager) {
+    try {
+        // 从数据库获取所有站点
+        $stmt = $pdo->query("SELECT * FROM {$dbManager->getTableName('sites')} ORDER BY created_at ASC");
+        $sites = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // 读取当前配置
+        $configFile = __DIR__ . '/config_master.php';
+        $currentConfig = require $configFile;
+
+        // 更新sites配置
+        $currentConfig['sites'] = [];
+        foreach ($sites as $site) {
+            $currentConfig['sites'][] = [
+                'id' => (int)$site['id'],
+                'site_key' => $site['site_key'],
+                'name' => $site['name'],
+                'domain' => $site['domain'],
+                'api_key' => $site['api_key'],
+                'status' => $site['status'],
+                'created_at' => $site['created_at'],
+                'updated_at' => $site['updated_at']
+            ];
+        }
+
+        // 重新生成配置文件
+        $configContent = "<?php\n/**\n * 多站点管理系统 - 主配置文件\n * 更新于: " . date('Y-m-d H:i:s') . "\n */\n\nreturn " . var_export($currentConfig, true) . ";\n?>";
+
+        file_put_contents($configFile, $configContent);
+
+    } catch (Exception $e) {
+        error_log("同步站点配置失败: " . $e->getMessage());
+    }
+}
+
 // 加载配置文件
 $configFile = __DIR__ . '/config_master.php';
 if (!file_exists($configFile)) {
@@ -30,6 +66,68 @@ $logged_in = isset($_SESSION['master_admin']) && $_SESSION['master_admin'] === t
 
 // 简单身份验证
 $action = $_POST['action'] ?? '';
+
+// 手动同步站点配置
+if ($logged_in && $action === 'sync_sites') {
+    try {
+        $pdo = $dbManager->getPDO();
+        syncSitesToConfig($pdo, $dbManager);
+        $_SESSION['success'] = "站点配置同步成功！";
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
+    } catch (Exception $e) {
+        $error = "同步站点配置失败：" . $e->getMessage();
+    }
+}
+
+// 设置文件大小限制
+if ($logged_in && $action === 'set_file_size') {
+    try {
+        $fileSize = trim($_POST['file_size'] ?? '');
+
+        if (empty($fileSize)) {
+            $error = "请输入文件大小限制";
+        } else {
+            // 验证文件大小格式 (支持 MB, GB, TB 或 unlimited)
+            if ($fileSize !== 'unlimited' && !preg_match('/^\d+(\.\d+)?(MB|GB|TB)$/i', $fileSize)) {
+                $error = "文件大小格式错误，请使用格式如: 100MB, 5GB, 1TB 或 unlimited";
+            } else {
+                // 读取当前配置
+                $currentConfig = require $configFile;
+                $currentConfig['system']['max_file_size'] = $fileSize;
+
+                // 保存配置
+                $configContent = "<?php\n/**\n * 多站点管理系统 - 主配置文件\n * 更新于: " . date('Y-m-d H:i:s') . "\n */\n\nreturn " . var_export($currentConfig, true) . ";\n?>";
+                file_put_contents($configFile, $configContent);
+
+                $_SESSION['success'] = "文件大小限制已设置为: $fileSize";
+                header('Location: ' . $_SERVER['PHP_SELF']);
+                exit;
+            }
+        }
+    } catch (Exception $e) {
+        $error = "设置文件大小失败：" . $e->getMessage();
+    }
+}
+
+// 一键取消文件大小限制
+if ($logged_in && $action === 'unlimited_file_size') {
+    try {
+        // 读取当前配置
+        $currentConfig = require $configFile;
+        $currentConfig['system']['max_file_size'] = 'unlimited';
+
+        // 保存配置
+        $configContent = "<?php\n/**\n * 多站点管理系统 - 主配置文件\n * 更新于: " . date('Y-m-d H:i:s') . "\n */\n\nreturn " . var_export($currentConfig, true) . ";\n?>";
+        file_put_contents($configFile, $configContent);
+
+        $_SESSION['success'] = "文件大小限制已取消，现在支持无限大小文件";
+        header('Location: ' . $_SERVER['PHP_SELF']);
+        exit;
+    } catch (Exception $e) {
+        $error = "取消文件大小限制失败：" . $e->getMessage();
+    }
+}
 
 if ($action === 'login') {
     $password = $_POST['password'] ?? '';
@@ -77,6 +175,9 @@ if ($logged_in && $action === 'add_site') {
                 VALUES (?, ?, ?, ?, 'active', NOW())");
 
             $stmt->execute([$siteKey, $siteName, $siteDomain, $apiKey]);
+
+            // 同步到配置文件
+            syncSitesToConfig($pdo, $dbManager);
 
             $_SESSION['success'] = "站点 $siteName 添加成功！API密钥：$apiKey";
             // 重定向防止刷新重复提交
@@ -145,12 +246,47 @@ if ($logged_in && $action === 'toggle_ip_verification') {
         if (file_put_contents($configFile, $configContent)) {
             // 重新加载配置
             $config = $currentConfig;
-            $success = "IP验证功能已" . ($newStatus ? '启用' : '禁用');
+            $_SESSION['success'] = "IP验证功能已" . ($newStatus ? '启用' : '禁用');
+            header('Location: ' . $_SERVER['PHP_SELF']);
+            exit;
         } else {
             $error = "无法更新配置文件";
         }
     } catch (Exception $e) {
         $error = "切换IP验证状态失败：" . $e->getMessage();
+    }
+}
+
+if ($logged_in && $action === 'toggle_downloader_log') {
+    try {
+        // 直接修改配置文件
+        $configFile = __DIR__ . '/config_master.php';
+        $currentConfig = require $configFile;
+
+        // 确保downloader配置存在
+        if (!isset($currentConfig['downloader'])) {
+            $currentConfig['downloader'] = [];
+        }
+
+        // 切换下载器日志显示状态
+        $currentStatus = $currentConfig['downloader']['show_log'] ?? true;
+        $newStatus = !$currentStatus;
+        $currentConfig['downloader']['show_log'] = $newStatus;
+
+        // 重新生成配置文件
+        $configContent = "<?php\n/**\n * 多站点管理系统 - 主配置文件\n * 更新于: " . date('Y-m-d H:i:s') . "\n */\n\nreturn " . var_export($currentConfig, true) . ";\n?>";
+
+        if (file_put_contents($configFile, $configContent)) {
+            // 重新加载配置
+            $config = $currentConfig;
+            $_SESSION['success'] = "下载器日志显示已" . ($newStatus ? '启用' : '禁用');
+            header('Location: ' . $_SERVER['PHP_SELF']);
+            exit;
+        } else {
+            $error = "无法更新配置文件";
+        }
+    } catch (Exception $e) {
+        $error = "切换下载器日志状态失败：" . $e->getMessage();
     }
 }
 
@@ -435,7 +571,28 @@ if ($logged_in) {
             background: #dc3545;
             color: white;
         }
-        
+
+        .btn-info {
+            background: #17a2b8;
+            color: white;
+        }
+
+        .btn-outline-secondary {
+            background: transparent;
+            color: #6c757d;
+            border: 1px solid #6c757d;
+        }
+
+        .btn-outline-secondary:hover {
+            background: #6c757d;
+            color: white;
+        }
+
+        .btn-sm {
+            padding: 4px 8px;
+            font-size: 0.8em;
+        }
+
         .btn:hover {
             opacity: 0.9;
             transform: translateY(-1px);
@@ -625,12 +782,34 @@ if ($logged_in) {
                             </button>
                         </form>
 
+                        <form method="POST" style="display: inline;">
+                            <input type="hidden" name="action" value="toggle_downloader_log">
+                            <button type="submit" class="btn <?= ($config['downloader']['show_log'] ?? true) ? 'btn-warning' : 'btn-success' ?>">
+                                <?= ($config['downloader']['show_log'] ?? true) ? '📝 禁用下载器日志' : '📝 启用下载器日志' ?>
+                            </button>
+                        </form>
+
+                        <form method="POST" style="display: inline;">
+                            <input type="hidden" name="action" value="sync_sites">
+                            <button type="submit" class="btn btn-info">
+                                🔄 同步站点配置
+                            </button>
+                        </form>
+
                         <span style="color: #666; font-size: 14px;">
-                            当前状态: <?= ($config['ip_verification']['enabled'] ?? true) ? '✅ IP验证已启用' : '❌ IP验证已禁用' ?>
+                            IP验证: <?= ($config['ip_verification']['enabled'] ?? true) ? '✅ 已启用' : '❌ 已禁用' ?>
+                        </span>
+
+                        <span style="color: #666; font-size: 14px;">
+                            下载器日志: <?= ($config['downloader']['show_log'] ?? true) ? '✅ 显示' : '❌ 隐藏' ?>
                         </span>
 
                         <span style="color: #666; font-size: 14px;">
                             严格模式: <?= ($config['ip_verification']['strict_mode'] ?? false) ? '✅ 已启用' : '❌ 已禁用' ?>
+                        </span>
+
+                        <span style="color: #666; font-size: 14px;">
+                            文件大小限制: <?= $config['system']['max_file_size'] ?? '5GB' ?>
                         </span>
 
                         <form method="POST" style="display: inline;">
@@ -639,6 +818,64 @@ if ($logged_in) {
                                 🔄 重置数据库
                             </button>
                         </form>
+                    </div>
+                </div>
+
+                <!-- 文件大小设置 -->
+                <div class="file-size-panel" style="margin: 30px 0; padding: 20px; background: #f8f9fa; border-radius: 8px;">
+                    <h3>📁 文件大小限制设置</h3>
+                    <div style="margin-bottom: 15px;">
+                        <span style="color: #666;">当前限制: <strong style="color: #007bff;"><?= $config['system']['max_file_size'] ?? '5GB' ?></strong></span>
+                    </div>
+
+                    <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                        <!-- 自定义文件大小 -->
+                        <form method="POST" style="display: flex; gap: 10px; align-items: center;">
+                            <input type="hidden" name="action" value="set_file_size">
+                            <input type="text" name="file_size" placeholder="例如: 10GB, 500MB, 2TB"
+                                   style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; width: 200px;"
+                                   value="">
+                            <button type="submit" class="btn btn-primary">
+                                📝 设置大小
+                            </button>
+                        </form>
+
+                        <!-- 一键取消限制 -->
+                        <form method="POST" style="display: inline;">
+                            <input type="hidden" name="action" value="unlimited_file_size">
+                            <button type="submit" class="btn btn-success"
+                                    onclick="return confirm('确定要取消文件大小限制吗？这将允许上传任意大小的文件。')">
+                                ♾️ 取消限制
+                            </button>
+                        </form>
+
+                        <!-- 常用预设 -->
+                        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                            <form method="POST" style="display: inline;">
+                                <input type="hidden" name="action" value="set_file_size">
+                                <input type="hidden" name="file_size" value="1GB">
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">1GB</button>
+                            </form>
+                            <form method="POST" style="display: inline;">
+                                <input type="hidden" name="action" value="set_file_size">
+                                <input type="hidden" name="file_size" value="5GB">
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">5GB</button>
+                            </form>
+                            <form method="POST" style="display: inline;">
+                                <input type="hidden" name="action" value="set_file_size">
+                                <input type="hidden" name="file_size" value="10GB">
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">10GB</button>
+                            </form>
+                            <form method="POST" style="display: inline;">
+                                <input type="hidden" name="action" value="set_file_size">
+                                <input type="hidden" name="file_size" value="50GB">
+                                <button type="submit" class="btn btn-outline-secondary btn-sm">50GB</button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div style="margin-top: 10px; font-size: 12px; color: #666;">
+                        💡 支持格式: MB, GB, TB (如: 100MB, 5GB, 1TB) 或 unlimited (无限制)
                     </div>
                 </div>
 

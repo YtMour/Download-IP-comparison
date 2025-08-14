@@ -47,34 +47,34 @@ class DownloadInterceptor {
 
     async loadConfig() {
         try {
-            // 初始化时总是显示启动信息
-            console.log('🚀 下载拦截器启动', this.version);
-            console.log('📡 加载配置:', this.handlerUrl + '?action=config');
+            // 获取用户IP用于调试模式判断
+            const userIP = await this.getUserIP();
 
-            const response = await fetch(this.handlerUrl + '?action=config');
+            const response = await fetch(this.handlerUrl + '?action=config&user_ip=' + encodeURIComponent(userIP));
 
             if (response.ok) {
                 const result = await response.json();
                 if (result.success) {
                     this.config = result.data;
-                    // 设置调试模式
-                    this.debugMode = this.config.debug_mode || false;
+                    // 设置调试模式 - 基于IP动态判断
+                    this.debugMode = this.config.debug_mode_for_ip || false;
 
-                    // 显示配置加载结果（总是显示）
-                    console.log('✅ 配置加载成功:', this.config.site_name);
-                    console.log('🔗 存储服务器:', this.config.storage_server);
-                    console.log('🐛 调试模式:', this.debugMode ? '已启用' : '已禁用');
-
-                    // 后续的详细日志使用调试模式控制
+                    // 只在调试模式下显示日志
+                    this.log('🚀 下载拦截器启动', this.version);
+                    this.log('📡 加载配置:', this.handlerUrl + '?action=config');
+                    this.log('✅ 配置加载成功:', this.config.site_name);
+                    this.log('🔗 存储服务器:', this.config.storage_server);
+                    this.log('🌐 当前IP:', userIP);
+                    this.log('🐛 调试模式:', this.debugMode ? '已启用 (基于IP)' : '已禁用');
                     this.log('📋 完整配置:', this.config);
                 } else {
-                    console.error('❌ 配置响应失败:', result);
+                    this.error('❌ 配置响应失败:', result);
                 }
             } else {
-                console.error('❌ 配置请求失败:', response.status, response.statusText);
+                this.error('❌ 配置请求失败:', response.status, response.statusText);
             }
         } catch (error) {
-            console.error('❌ 配置加载异常:', error.message);
+            this.error('❌ 配置加载异常:', error.message);
         }
     }
 
@@ -86,7 +86,7 @@ class DownloadInterceptor {
                 this.handleDownloadClick(link);
             }
         });
-        console.log('✅ 下载拦截器已启动');
+        this.log('✅ 下载拦截器已启动');
     }
 
     shouldIntercept(url) {
@@ -364,9 +364,9 @@ class DownloadInterceptor {
         `;
 
         notice.innerHTML = `
-            <div style="font-weight: bold; margin-bottom: 5px;">✅ 下载已开始！</div>
-            <div style="font-size: 14px;">软件: ${softwareName}</div>
-            <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">请检查浏览器下载文件夹</div>
+            <div style="font-weight: bold; margin-bottom: 5px;">✅ Download Started!</div>
+            <div style="font-size: 14px; word-wrap: break-word; overflow-wrap: break-word; max-width: 280px;">Software: ${softwareName}</div>
+            <div style="font-size: 12px; margin-top: 5px; opacity: 0.9;">Please check your browser downloads folder</div>
         `;
 
         document.body.appendChild(notice);
@@ -398,4 +398,4 @@ class DownloadInterceptor {
 
 // 初始化
 window.downloadInterceptor = new DownloadInterceptor();
-console.log('✅ 下载拦截器 v13.0 已加载 - 支持调试模式控制');
+// 初始化日志将在loadConfig中根据调试模式显示
