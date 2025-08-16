@@ -9,12 +9,41 @@
 - **全文件类型支持**: 智能识别文件扩展名，支持所有文件类型
 - **自动下载**: 自动保存到Downloads目录，避免文件名重复
 - **网络优化**: 多重IP获取服务，解决代理和SSL问题
+- **友好提示**: 下载完成和错误时显示详细的弹窗提示
+- **一键打开**: 下载完成后可一键打开文件所在位置
+
+## 🚀 构建说明
+
+### 快速构建
+```bash
+# 安装依赖
+pip install pyinstaller pillow
+
+# 自动构建
+python build.py
+```
+
+### 手动构建
+```bash
+# 1. 创建图标（可选）
+python create_icon.py
+
+# 2. 使用PyInstaller构建
+pyinstaller main.spec --clean
+```
+
+### 构建文件说明
+- `main.spec` - PyInstaller配置文件（已优化）
+- `build.py` - 自动构建脚本
+- `create_icon.py` - 图标生成脚本
+- `version_info.py` - 版本信息文件
 
 ## 📋 使用方法
 1. 将配置文件放置在下载器同目录
 2. 双击运行 `downloader.exe`
 3. 点击"开始下载"按钮
 4. 查看操作日志了解下载状态
+5. 下载完成后会弹出提示对话框
 
 ## 📄 配置文件格式
 ```ini

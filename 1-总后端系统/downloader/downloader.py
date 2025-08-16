@@ -20,9 +20,9 @@ import threading
 import webbrowser
 import ctypes
 from ctypes import wintypes
-import sys
-import os
 import socket
+import subprocess
+import platform
 
 class DownloadManager:
     def __init__(self):
@@ -237,6 +237,89 @@ class DownloadManager:
             return f"{size_bytes / (1024 * 1024):.1f} MB"
         else:
             return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
+
+    def open_file_location(self, file_path):
+        """打开文件所在位置"""
+        try:
+            if platform.system() == "Windows":
+                # Windows: 使用explorer选中文件
+                subprocess.run(['explorer', '/select,', file_path], check=True)
+            elif platform.system() == "Darwin":  # macOS
+                # macOS: 使用Finder显示文件
+                subprocess.run(['open', '-R', file_path], check=True)
+            else:  # Linux
+                # Linux: 打开包含文件的目录
+                directory = os.path.dirname(file_path)
+                subprocess.run(['xdg-open', directory], check=True)
+        except Exception as e:
+            print(f"无法打开文件位置: {e}")
+
+    def show_download_complete_dialog(self, file_path, file_size=None):
+        """显示下载完成对话框"""
+        try:
+            filename = os.path.basename(file_path)
+            directory = os.path.dirname(file_path)
+
+            # 获取文件大小
+            if file_size is None:
+                try:
+                    file_size = os.path.getsize(file_path)
+                    size_text = self.format_size(file_size)
+                except:
+                    size_text = "未知"
+            else:
+                size_text = self.format_size(file_size)
+
+            # 使用简单但有效的messagebox，包含详细信息
+            message = f"""🎉 下载完成！
+
+📁 文件名: {filename}
+📊 文件大小: {size_text}
+📂 保存位置: {directory}
+
+是否打开文件所在位置？"""
+
+            result = messagebox.askyesno("下载完成", message)
+            if result:
+                self.open_file_location(file_path)
+
+        except Exception as e:
+            # 如果出错，使用最简单的提示
+            messagebox.showinfo("下载完成",
+                              f"文件下载完成！\n\n文件: {os.path.basename(file_path)}\n位置: {os.path.dirname(file_path)}")
+
+    def show_error_dialog(self, error_message, error_type="下载错误"):
+        """显示错误对话框"""
+        try:
+            # 根据错误类型选择合适的图标和标题
+            if "网络" in error_message or "Network" in error_message:
+                title = "🌐 网络错误"
+                icon_type = "warning"
+            elif "令牌" in error_message or "Token" in error_message or "过期" in error_message:
+                title = "⏰ 令牌错误"
+                icon_type = "error"
+            elif "权限" in error_message or "Access" in error_message or "denied" in error_message:
+                title = "🔒 权限错误"
+                icon_type = "error"
+            else:
+                title = f"❌ {error_type}"
+                icon_type = "error"
+
+            # 格式化错误信息
+            formatted_message = f"""发生了以下错误：
+
+{error_message}
+
+请检查网络连接或联系技术支持。"""
+
+            if icon_type == "warning":
+                messagebox.showwarning(title, formatted_message)
+            else:
+                messagebox.showerror(title, formatted_message)
+
+        except Exception as e:
+            # 如果自定义对话框失败，使用最简单的messagebox
+            messagebox.showerror("错误", error_message)
     
     def download_file(self, progress_callback=None):
         """下载文件 - 自动保存到Downloads目录"""
@@ -1230,11 +1313,21 @@ class IPDownloaderGUI:
                     should_download = False
                     self.update_status("Network error, please try again later", "error")
                     self.log_message("🚫 Download terminated due to network error")
+                    # 显示网络错误对话框
+                    error_msg = f"网络连接错误，请检查您的网络连接后重试。\n\n详细信息: {message}"
+                    self.root.after(500, lambda: self.manager.show_error_dialog(error_msg, "网络错误"))
                 elif "Token expired" in message or "Download terminated" in message or "Access denied" in message:
                     # 严重错误，不继续下载
                     should_download = False
                     self.update_status("Token expired or access denied", "error")
                     self.log_message("🚫 Download terminated due to token/access issue")
+                    # 显示令牌/权限错误对话框
+                    if "Token expired" in message or "过期" in message:
+                        error_msg = f"下载令牌已过期，请重新获取下载器。\n\n详细信息: {message}"
+                        self.root.after(500, lambda: self.manager.show_error_dialog(error_msg, "令牌过期"))
+                    else:
+                        error_msg = f"访问被拒绝，请检查您的权限或联系管理员。\n\n详细信息: {message}"
+                        self.root.after(500, lambda: self.manager.show_error_dialog(error_msg, "访问拒绝"))
                 else:
                     # 其他API错误，仍然尝试下载
                     should_download = True
@@ -1266,15 +1359,27 @@ class IPDownloaderGUI:
                 self.log_message(f"✅ {download_message}")
                 self.log_message("="*50)
                 self.log_message("🎉 Download task completed!")
-                # 获取实际保存路径
+
+                # 获取实际保存路径并显示完成对话框
                 try:
-                    save_path = self.manager.last_save_path if hasattr(self.manager, 'last_save_path') else "Downloads folder"
-                    self.log_message(f"📁 File location: {save_path}")
-                except:
+                    save_path = self.manager.last_save_path if hasattr(self.manager, 'last_save_path') else None
+                    if save_path and os.path.exists(save_path):
+                        self.log_message(f"📁 File location: {save_path}")
+                        # 显示下载完成对话框
+                        self.root.after(500, lambda: self.manager.show_download_complete_dialog(save_path))
+                    else:
+                        self.log_message("📁 File saved to Downloads folder")
+                        # 如果没有具体路径，显示简单提示
+                        self.root.after(500, lambda: messagebox.showinfo("下载完成", "文件已成功下载到Downloads文件夹！"))
+                except Exception as e:
                     self.log_message("📁 File saved to selected location")
+                    self.root.after(500, lambda: messagebox.showinfo("下载完成", "文件下载完成！"))
             else:
                 self.update_status("Download failed, please try again", "error")
                 self.log_message(f"❌ {download_message}")
+
+                # 显示错误对话框
+                self.root.after(500, lambda: self.manager.show_error_dialog(download_message, "下载失败"))
 
             self.manager.is_downloading = False
             self.download_btn.config(state="normal")

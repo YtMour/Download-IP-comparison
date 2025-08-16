@@ -9,10 +9,10 @@
 class DownloadInterceptor {
     constructor() {
         this.config = null;
-        // 使用完整URL - 修复路径问题
+        // 使用当前分站域名 - handler.php在分站上，不是存储服务器上
         this.handlerUrl = window.location.protocol + '//' + window.location.host + '/handler.php';
         this.isProcessing = false;
-        this.version = 'v13.0'; // 版本号
+        this.version = 'v13.1'; // 版本号
         this.debugMode = false; // 调试模式，从配置中加载
         this.init();
     }
@@ -64,6 +64,7 @@ class DownloadInterceptor {
                     this.log('📡 加载配置:', this.handlerUrl + '?action=config');
                     this.log('✅ 配置加载成功:', this.config.site_name);
                     this.log('🔗 存储服务器:', this.config.storage_server);
+                    this.log('🔗 分站处理器URL:', this.handlerUrl);
                     this.log('🌐 当前IP:', userIP);
                     this.log('🐛 调试模式:', this.debugMode ? '已启用 (基于IP)' : '已禁用');
                     this.log('📋 完整配置:', this.config);

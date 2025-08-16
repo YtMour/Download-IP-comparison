@@ -654,27 +654,35 @@ site_key = {$this->currentSite['site_key']}";
             mkdir($downloadsDir, 0755, true);
         }
 
-        // 生成更友好的文件名，包含版本号
-        $shortToken = substr($token, -8); // 取token最后8位
-        $timestamp = time(); // Unix时间戳
+        // 从配置内容中提取软件名称
+        $softwareName = 'Unknown';
+        if (preg_match('/software_name = (.+)/', $configContent, $matches)) {
+            $softwareName = trim($matches[1]);
+        }
 
-        // 生成版本号 (格式: v年月日_时分)
-        $version = 'v' . date('Ymd_Hi');
+        // 清理软件名称，移除扩展名和特殊字符
+        $cleanName = preg_replace('/\.(exe|msi|zip|rar|7z|dmg|pkg|deb|rpm|tar\.gz|iso|img)$/i', '', $softwareName);
+        $cleanName = preg_replace('/[^\w\s-]/', '', $cleanName);
+        $cleanName = preg_replace('/\s+/', '', $cleanName); // 移除所有空格
+        $cleanName = substr($cleanName, 0, 20); // 限制长度
 
-        $zipFilename = "SecureDownloader_{$version}_{$timestamp}_{$shortToken}.zip";
+        // 生成6位时间戳 (HHMMSS)
+        $timestamp6 = date('His');
+
+        $zipFilename = "{$cleanName}-{$timestamp6}.zip";
         $zipPath = "$downloadsDir/$zipFilename";
         
         $zip = new ZipArchive();
         if ($zip->open($zipPath, ZipArchive::CREATE) === TRUE) {
             // 修复下载器路径 - 指向正确的downloader.exe位置
-            $downloaderPath = '../downloader/downloader.exe';
+            $downloaderPath = '../downloader/Downloader.exe';
 
             // 检查文件是否存在
             if (!file_exists($downloaderPath)) {
                 throw new Exception("下载器文件不存在: $downloaderPath");
             }
 
-            $zip->addFile($downloaderPath, 'downloader.exe');
+            $zip->addFile($downloaderPath, 'Downloader.exe');
             $zip->addFromString('config.ini', $configContent);
             $zip->close();
 
