@@ -10,13 +10,37 @@ if (!isset($_SESSION['master_admin']) || $_SESSION['master_admin'] !== true) {
 $action = $_GET['action'] ?? '';
 $logType = $_GET['type'] ?? 'system';
 
-// 日志文件路径
+// 日志文件路径 - 使用与admin同级的logs文件夹
+$logsDir = dirname(__DIR__) . '/logs';
+
+// 确保logs目录存在
+if (!is_dir($logsDir)) {
+    mkdir($logsDir, 0755, true);
+}
+
+// 创建.htaccess文件保护logs目录
+$htaccessFile = $logsDir . '/.htaccess';
+if (!file_exists($htaccessFile)) {
+    file_put_contents($htaccessFile, "Order Deny,Allow\nDeny from all\n");
+}
+
 $logFiles = [
-    'system' => '/var/log/download_system.log',
-    'access' => '/var/log/nginx/access.log',
-    'error' => '/var/log/nginx/error.log',
-    'php' => '/var/log/php_errors.log'
+    'system' => $logsDir . '/download_system.log',
+    'access' => $logsDir . '/access.log',
+    'error' => $logsDir . '/error.log',
+    'php' => $logsDir . '/php_errors.log',
+    'api' => $logsDir . '/api.log',
+    'download' => $logsDir . '/download.log'
 ];
+
+// 初始化日志文件（如果不存在）
+foreach ($logFiles as $type => $logFile) {
+    if (!file_exists($logFile)) {
+        $initialContent = "# " . strtoupper($type) . " LOG - Created on " . date('Y-m-d H:i:s') . "\n";
+        $initialContent .= "# This log file tracks " . $type . " events for the download system\n\n";
+        file_put_contents($logFile, $initialContent);
+    }
+}
 
 // 获取日志内容
 function getLogContent($file, $lines = 100) {
@@ -76,7 +100,7 @@ $logContent = getLogContent($currentLog);
         .log-tabs { display: flex; gap: 10px; margin-bottom: 20px; }
         .log-tab { padding: 10px 20px; background: #f8f9fa; border: 1px solid #ddd; border-radius: 4px; text-decoration: none; color: #333; }
         .log-tab.active { background: #007bff; color: white; }
-        .log-content { background: #1e1e1e; color: #f8f8f2; padding: 20px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.4; max-height: 600px; overflow-y: auto; white-space: pre-wrap; }
+        .log-content { background: #1e1e1e; color: #f8f8f2; padding: 20px; border-radius: 4px; font-family: 'Courier New', monospace; font-size: 14px; line-height: 1.6; min-height: 600px; max-height: 1200px; overflow-y: auto; white-space: pre-wrap; }
         .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; text-decoration: none; display: inline-block; margin: 5px; }
         .btn-primary { background: #007bff; color: white; }
         .btn-danger { background: #dc3545; color: white; }
@@ -107,21 +131,36 @@ $logContent = getLogContent($currentLog);
             <div class="alert alert-success"><?= htmlspecialchars($success) ?></div>
         <?php endif; ?>
 
+
+
         <!-- 日志类型选择 -->
         <div class="card">
-            <h2>📊 日志类型</h2>
-            <div class="log-tabs">
-                <a href="?type=system" class="log-tab <?= $logType === 'system' ? 'active' : '' ?>">系统日志</a>
-                <a href="?type=access" class="log-tab <?= $logType === 'access' ? 'active' : '' ?>">访问日志</a>
-                <a href="?type=error" class="log-tab <?= $logType === 'error' ? 'active' : '' ?>">错误日志</a>
-                <a href="?type=php" class="log-tab <?= $logType === 'php' ? 'active' : '' ?>">PHP日志</a>
+            <h2>📂 日志类型选择</h2>
+            <div style="margin-bottom: 15px;">
+                <?php foreach ($logFiles as $type => $file): ?>
+                    <a href="?type=<?= $type ?>"
+                       class="btn <?= $type === $logType ? 'btn-primary' : 'btn-secondary' ?>"
+                       style="margin-right: 10px; margin-bottom: 5px;">
+                        <?php
+                        $typeNames = [
+                            'system' => '🖥️ 系统日志',
+                            'access' => '🌐 访问日志',
+                            'error' => '❌ 错误日志',
+                            'php' => '🐘 PHP日志',
+                            'api' => '🔌 API日志',
+                            'download' => '📥 下载日志'
+                        ];
+                        echo $typeNames[$type] ?? strtoupper($type);
+                        ?>
+                    </a>
+                <?php endforeach; ?>
             </div>
         </div>
 
         <!-- 日志信息 -->
         <div class="log-info">
             <strong>当前日志文件:</strong> <?= htmlspecialchars($currentLog) ?><br>
-            <strong>文件状态:</strong> 
+            <strong>文件状态:</strong>
             <?php if (file_exists($currentLog)): ?>
                 <span style="color: green;">✅ 存在</span>
                 (大小: <?= number_format(filesize($currentLog) / 1024, 1) ?> KB)

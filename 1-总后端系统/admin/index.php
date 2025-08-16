@@ -70,7 +70,10 @@ $action = $_POST['action'] ?? '';
 // 手动同步站点配置
 if ($logged_in && $action === 'sync_sites') {
     try {
+        // 初始化数据库管理器
+        $dbManager = new MultiSiteDatabaseManager($config);
         $pdo = $dbManager->getPDO();
+
         syncSitesToConfig($pdo, $dbManager);
         $_SESSION['success'] = "站点配置同步成功！";
         header('Location: ' . $_SERVER['PHP_SELF']);

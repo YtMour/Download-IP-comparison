@@ -21,9 +21,88 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 // 全局错误处理函数
 function sendJsonError($message, $code = 500) {
+    // 简单记录错误到PHP错误日志，避免递归调用
+    error_log("API Error: $message (Code: $code)");
+
     http_response_code($code);
     echo json_encode(['success' => false, 'message' => $message], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+// 日志记录函数 - 简化版本避免复杂字符串处理
+function writeLog($type, $action, $details = []) {
+    try {
+        $logsDir = dirname(__DIR__) . '/logs';
+
+        // 确保logs目录存在
+        if (!is_dir($logsDir)) {
+            mkdir($logsDir, 0755, true);
+        }
+
+        // 确保.htaccess保护文件存在
+        $htaccessFile = $logsDir . '/.htaccess';
+        if (!file_exists($htaccessFile)) {
+            file_put_contents($htaccessFile, "Order Deny,Allow\nDeny from all\n");
+        }
+
+        $logFiles = [
+            'system' => $logsDir . '/download_system.log',
+            'access' => $logsDir . '/access.log',
+            'error' => $logsDir . '/error.log',
+            'api' => $logsDir . '/api.log',
+            'download' => $logsDir . '/download.log'
+        ];
+
+        $logFile = $logFiles[$type] ?? $logFiles['system'];
+
+        $timestamp = date('Y-m-d H:i:s');
+        // 使用传递的IP信息，如果没有则使用服务器检测的IP
+        $clientIP = $details['client_ip'] ?? $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $siteName = isset($details['site']) ? $details['site'] : 'unknown';
+
+        // 简单安全的日志格式 - 只使用ASCII字符
+        $logEntry = "[$timestamp] $siteName $clientIP $action";
+
+        // 添加重要信息
+        if (!empty($details)) {
+            $info = [];
+
+            if (isset($details['software_name'])) {
+                $info[] = "software=" . $details['software_name'];
+            }
+            if (isset($details['token'])) {
+                $tokenShort = substr($details['token'], 0, 12) . "...";
+                $info[] = "token=$tokenShort";
+            }
+            if (isset($details['result'])) {
+                $info[] = "result=" . $details['result'];
+            }
+            if (isset($details['original_ip'])) {
+                $info[] = "original_ip=" . $details['original_ip'];
+            }
+            if (isset($details['current_ip'])) {
+                $info[] = "current_ip=" . $details['current_ip'];
+            }
+            if (isset($details['expires_at'])) {
+                $info[] = "expires=" . $details['expires_at'];
+            }
+            if (isset($details['error'])) {
+                $info[] = "error=" . $details['error'];
+            }
+
+            if (!empty($info)) {
+                $logEntry .= " | " . implode(" ", $info);
+            }
+        }
+
+        $logEntry .= "\n";
+
+        file_put_contents($logFile, $logEntry, FILE_APPEND | LOCK_EX);
+
+    } catch (Exception $e) {
+        // 如果日志记录失败，记录到PHP错误日志
+        error_log("WriteLog Error: " . $e->getMessage());
+    }
 }
 
 // 设置异常处理器
@@ -158,15 +237,31 @@ class UnifiedDownloadAPI {
     }
     
     public function createDownload() {
+        // 先获取参数
         $fileUrl = $_POST['file_url'] ?? '';
         $softwareName = $_POST['software_name'] ?? '';
 
-        // 优先使用前端传递的用户IP，如果没有则使用服务器检测的IP
-        $userIP = $_POST['user_ip'] ?? '';
-        $clientIP = !empty($userIP) ? $userIP : $this->getClientIP();
+        // 直接使用前端传递的用户IP
+        $clientIP = $_POST['user_ip'] ?? $this->getClientIP();
 
-        // 记录IP获取信息用于调试
-        $this->log("IP获取: 前端传递IP=$userIP, 服务器检测IP=" . $this->getClientIP() . ", 最终使用IP=$clientIP");
+        // 记录用户请求创建下载器
+        writeLog('access', '请求下载', [
+            'site' => $this->currentSite['name'],
+            'software_name' => $softwareName,
+            'client_ip' => $clientIP
+        ]);
+
+        // 记录IP使用情况
+        $this->log("使用IP地址: $clientIP (来源: " . (isset($_POST['user_ip']) ? '前端检测' : '服务器检测') . ")");
+
+        // 记录系统日志
+        writeLog('system', 'IP地址确认', [
+            'site' => $this->currentSite['name'],
+            'frontend_ip' => $_POST['user_ip'] ?? 'none',
+            'server_ip' => $this->getClientIP(),
+            'final_ip' => $clientIP,
+            'client_ip' => $clientIP
+        ]);
         
         if (empty($fileUrl) || empty($softwareName)) {
             throw new Exception('缺少必要参数');
@@ -218,7 +313,16 @@ class UnifiedDownloadAPI {
         $zipPath = $this->createDownloadPackage($token, $configContent);
         
         $this->log("创建下载: Token=$token, IP=$clientIP, Software=$softwareName");
-        
+
+        // 记录下载器创建成功
+        writeLog('download', '下载器创建成功', [
+            'site' => $this->currentSite['name'],
+            'software_name' => $softwareName,
+            'token' => $token,
+            'expires_at' => $expiresAt,
+            'client_ip' => $clientIP
+        ]);
+
         $this->sendSuccess([
             'token' => $token,
             'download_url' => $zipPath,
@@ -231,7 +335,14 @@ class UnifiedDownloadAPI {
     public function verifyIP() {
         $token = $_POST['token'] ?? '';
         $currentIP = $_POST['current_ip'] ?? '';
-        
+
+        // 记录IP验证请求
+        writeLog('access', '验证下载权限', [
+            'site' => $this->currentSite['name'],
+            'token' => $token,
+            'client_ip' => $currentIP
+        ]);
+
         if (empty($token)) {
             $this->sendResponse([
                 'S' => 0,
@@ -310,6 +421,16 @@ class UnifiedDownloadAPI {
             // IP完全匹配 - 验证通过
             $this->log("IP地址匹配，验证通过: 原始IP={$record['original_ip']}, 当前IP=$currentIP");
 
+            writeLog('download', '验证通过(IP对比一致)', [
+                'site' => $record['site_name'],
+                'software_name' => $record['software_name'],
+                'token' => $token,
+                'original_ip' => $record['original_ip'],
+                'current_ip' => $currentIP,
+                'result' => 'IP一致允许下载',
+                'client_ip' => $currentIP
+            ]);
+
             $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_MATCH');
 
             $this->sendResponse([
@@ -330,6 +451,16 @@ class UnifiedDownloadAPI {
             // 允许IP不匹配的下载
             $this->log("IP地址不匹配但允许下载: 原始IP={$record['original_ip']}, 当前IP=$currentIP");
 
+            writeLog('download', '验证通过(IP对比不一致)', [
+                'site' => $record['site_name'],
+                'software_name' => $record['software_name'],
+                'token' => $token,
+                'original_ip' => $record['original_ip'],
+                'current_ip' => $currentIP,
+                'result' => 'IP不一致但允许下载',
+                'client_ip' => $currentIP
+            ]);
+
             $this->executeSuccessActions($record['id'], $token, $currentIP, 'IP_MISMATCH_ALLOWED');
 
             $this->sendResponse([
@@ -343,6 +474,16 @@ class UnifiedDownloadAPI {
         } else {
             // 严格模式 - 拒绝IP不匹配的下载
             $this->log("IP地址不匹配，拒绝下载: 原始IP={$record['original_ip']}, 当前IP=$currentIP");
+
+            writeLog('download', '验证失败(IP对比不一致)', [
+                'site' => $record['site_name'],
+                'software_name' => $record['software_name'],
+                'token' => $token,
+                'original_ip' => $record['original_ip'],
+                'current_ip' => $currentIP,
+                'result' => 'IP不一致拒绝下载',
+                'client_ip' => $currentIP
+            ]);
 
             $this->recordVerification($record['id'], $token, $currentIP, 'IP_MISMATCH_STRICT');
 
@@ -391,6 +532,16 @@ class UnifiedDownloadAPI {
     }
     
     public function getStats() {
+        // 记录统计查询
+        writeLog('access', '查询统计', [
+            'site' => $this->currentSite['name'],
+            'client_ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
+            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? 'unknown',
+            'referer' => $_SERVER['HTTP_REFERER'] ?? 'none',
+            'cf_connecting_ip' => $_SERVER['HTTP_CF_CONNECTING_IP'] ?? 'none',
+            'x_forwarded_for' => $_SERVER['HTTP_X_FORWARDED_FOR'] ?? 'none'
+        ]);
+
         try {
             $siteId = $this->currentSite['id'];
             
@@ -534,20 +685,23 @@ site_key = {$this->currentSite['site_key']}";
     }
     
     private function getClientIP() {
+        // 优先级顺序：Cloudflare -> X-Forwarded-For -> X-Real-IP -> 直连
         $ipKeys = ['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP', 'REMOTE_ADDR'];
-        
+
         foreach ($ipKeys as $key) {
             if (!empty($_SERVER[$key])) {
                 $ip = $_SERVER[$key];
+                // 处理多个IP的情况（通常第一个是真实IP）
                 if (strpos($ip, ',') !== false) {
                     $ip = trim(explode(',', $ip)[0]);
                 }
-                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE)) {
+                // 验证IP格式（包括IPv6），但不排除私有IP
+                if (filter_var($ip, FILTER_VALIDATE_IP)) {
                     return $ip;
                 }
             }
         }
-        
+
         return $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
     }
     

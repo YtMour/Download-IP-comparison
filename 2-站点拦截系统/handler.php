@@ -9,6 +9,49 @@ header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
 header('Access-Control-Allow-Headers: Content-Type, X-API-Key');
 
+// 启用错误报告和自定义错误处理
+error_reporting(E_ALL);
+ini_set('display_errors', 0); // 不直接显示错误，通过自定义处理
+
+// 自定义错误处理函数
+function customErrorHandler($errno, $errstr, $errfile, $errline) {
+    $errorMessage = "PHP错误: $errstr (文件: " . basename($errfile) . ", 行: $errline)";
+    error_log($errorMessage);
+
+    // 如果是致命错误，返回JSON错误响应
+    if ($errno === E_ERROR || $errno === E_PARSE || $errno === E_CORE_ERROR || $errno === E_COMPILE_ERROR) {
+        if (function_exists('sendError')) {
+            sendError($errorMessage, 503);
+        } else {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'error' => 'HANDLER_ERROR', 'message' => $errorMessage, 'code' => 503], JSON_UNESCAPED_UNICODE);
+        }
+        exit;
+    }
+
+    return true; // 阻止PHP默认错误处理
+}
+
+// 自定义致命错误处理
+function customFatalErrorHandler() {
+    $error = error_get_last();
+    if ($error && in_array($error['type'], [E_ERROR, E_PARSE, E_CORE_ERROR, E_COMPILE_ERROR])) {
+        $errorMessage = "PHP致命错误: {$error['message']} (文件: " . basename($error['file']) . ", 行: {$error['line']})";
+        error_log($errorMessage);
+
+        if (function_exists('sendError')) {
+            sendError($errorMessage, 503);
+        } else {
+            http_response_code(503);
+            echo json_encode(['success' => false, 'error' => 'HANDLER_ERROR', 'message' => $errorMessage, 'code' => 503], JSON_UNESCAPED_UNICODE);
+        }
+    }
+}
+
+// 注册错误处理函数
+set_error_handler('customErrorHandler');
+register_shutdown_function('customFatalErrorHandler');
+
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
 }
@@ -96,7 +139,10 @@ function handleGenerate($config) {
     $rawInput = file_get_contents('php://input');
     $userIP = $_SERVER['REMOTE_ADDR'];
 
+    debugLog("=== 开始处理生成请求 ===", $config, $userIP);
     debugLog("原始输入数据: " . $rawInput, $config, $userIP);
+    debugLog("用户IP: " . $userIP, $config, $userIP);
+    debugLog("POST数据: " . json_encode($_POST), $config, $userIP);
 
     // 尝试解析JSON
     $input = json_decode($rawInput, true);
@@ -109,7 +155,7 @@ function handleGenerate($config) {
 
     $fileUrl = trim($input['file_url'] ?? '');
     $softwareName = trim($input['software_name'] ?? '');
-    $userIP = $input['user_ip'] ?? $_SERVER['REMOTE_ADDR'];
+    $clientIP = $input['user_ip'] ?? $_SERVER['REMOTE_ADDR']; // 使用不同的变量名避免覆盖
 
     // 记录详细调试信息
     debugLog("处理器收到参数: " . json_encode([
@@ -117,7 +163,7 @@ function handleGenerate($config) {
         'json_decode_result' => $input,
         'file_url' => $fileUrl,
         'software_name' => $softwareName,
-        'user_ip' => $userIP,
+        'user_ip' => $clientIP,
         'file_url_length' => strlen($fileUrl),
         'software_name_length' => strlen($softwareName)
     ]), $config, $userIP);
@@ -138,17 +184,17 @@ function handleGenerate($config) {
     }
 
     debugLog("🔗 连接到总后台: " . $config['storage_server'], $config, $userIP);
-    handleRealGenerate($config, $fileUrl, $softwareName, $userIP);
+    handleRealGenerate($config, $fileUrl, $softwareName, $clientIP);
 }
 
 
 
-function handleRealGenerate($config, $fileUrl, $softwareName, $userIP) {
+function handleRealGenerate($config, $fileUrl, $softwareName, $clientIP) {
     // 使用正确的API格式 - 根据总后台API代码
     $postData = [
         'file_url' => $fileUrl,
         'software_name' => $softwareName,
-        'user_ip' => $userIP  // 添加用户IP字段
+        'user_ip' => $clientIP  // 添加用户IP字段
     ];
 
     // 正确的API端点
