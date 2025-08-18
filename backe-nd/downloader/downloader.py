@@ -327,51 +327,51 @@ class DownloadManager:
                     file_size = os.path.getsize(file_path)
                     size_text = self.format_size(file_size)
                 except:
-                    size_text = "未知"
+                    size_text = "Unknown"
             else:
                 size_text = self.format_size(file_size)
 
             # 使用简单但有效的messagebox，包含详细信息
-            message = f"""🎉 下载完成！
+            message = f"""🎉 Download Complete!
 
-📁 文件名: {filename}
-📊 文件大小: {size_text}
-📂 保存位置: {directory}
+📁 File Name: {filename}
+📊 File Size: {size_text}
+📂 Save Location: {directory}
 
-是否打开文件所在位置？"""
+Would you like to open the file location?"""
 
-            result = messagebox.askyesno("下载完成", message)
+            result = messagebox.askyesno("Download Complete", message)
             if result:
                 self.open_file_location(file_path)
 
         except Exception as e:
             # 如果出错，使用最简单的提示
-            messagebox.showinfo("下载完成",
-                              f"文件下载完成！\n\n文件: {os.path.basename(file_path)}\n位置: {os.path.dirname(file_path)}")
+            messagebox.showinfo("Download Complete",
+                              f"File download completed!\n\nFile: {os.path.basename(file_path)}\nLocation: {os.path.dirname(file_path)}")
 
-    def show_error_dialog(self, error_message, error_type="下载错误"):
+    def show_error_dialog(self, error_message, error_type="Download Error"):
         """显示错误对话框"""
         try:
             # 根据错误类型选择合适的图标和标题
             if "网络" in error_message or "Network" in error_message:
-                title = "🌐 网络错误"
+                title = "🌐 Network Error"
                 icon_type = "warning"
             elif "令牌" in error_message or "Token" in error_message or "过期" in error_message:
-                title = "⏰ 令牌错误"
+                title = "⏰ Token Error"
                 icon_type = "error"
             elif "权限" in error_message or "Access" in error_message or "denied" in error_message:
-                title = "🔒 权限错误"
+                title = "🔒 Permission Error"
                 icon_type = "error"
             else:
                 title = f"❌ {error_type}"
                 icon_type = "error"
 
             # 格式化错误信息
-            formatted_message = f"""发生了以下错误：
+            formatted_message = f"""The following error occurred:
 
 {error_message}
 
-请检查网络连接或联系技术支持。"""
+Please check your network connection or contact technical support."""
 
             if icon_type == "warning":
                 messagebox.showwarning(title, formatted_message)
@@ -380,7 +380,7 @@ class DownloadManager:
 
         except Exception as e:
             # 如果自定义对话框失败，使用最简单的messagebox
-            messagebox.showerror("错误", error_message)
+            messagebox.showerror("Error", error_message)
     
     def download_file(self, progress_callback=None):
         """下载文件 - 自动保存到Downloads目录"""
@@ -1354,14 +1354,18 @@ class IPDownloaderGUI:
     def get_file_size(self, url):
         """获取文件大小"""
         try:
-            response = self.manager.session.head(url, timeout=10)
-            if response.status_code == 200:
-                content_length = response.headers.get('content-length')
-                if content_length:
-                    size_bytes = int(content_length)
-                    return self.format_file_size(size_bytes)
+            # 使用urllib进行HEAD请求获取文件大小
+            req = urllib.request.Request(url, method='HEAD')
+            req.add_header('User-Agent', 'SecureDownloader/2.1.0')
+
+            response = self.manager.opener.open(req, timeout=10)
+            content_length = response.headers.get('content-length')
+            if content_length:
+                size_bytes = int(content_length)
+                return self.format_file_size(size_bytes)
             return "Unknown"
-        except:
+        except Exception as e:
+            self.log_message(f"⚠️ Failed to get file size: {e}")
             return "Unknown"
 
     def format_file_size(self, size_bytes):
@@ -1465,10 +1469,10 @@ class IPDownloaderGUI:
                     else:
                         self.log_message("📁 File saved to Downloads folder")
                         # 如果没有具体路径，显示简单提示
-                        self.root.after(500, lambda: messagebox.showinfo("下载完成", "文件已成功下载到Downloads文件夹！"))
+                        self.root.after(500, lambda: messagebox.showinfo("Download Complete", "File successfully downloaded to Downloads folder!"))
                 except Exception as e:
                     self.log_message("📁 File saved to selected location")
-                    self.root.after(500, lambda: messagebox.showinfo("下载完成", "文件下载完成！"))
+                    self.root.after(500, lambda: messagebox.showinfo("Download Complete", "File download completed!"))
             else:
                 self.update_status("Download failed, please try again", "error")
                 self.log_message(f"❌ {download_message}")
