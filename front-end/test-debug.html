@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>调试模式测试页面</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background: #f9f9f9;
+        }
+        .download-link {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 10px;
+        }
+        .download-link:hover {
+            background: #0056b3;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
+        .warning {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            border-left: 4px solid #ffc107;
+        }
+        .console-info {
+            background: #1e1e1e;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐛 调试模式测试页面</h1>
+        
+        <div class="info">
+            <strong>📋 测试说明：</strong><br>
+            1. 打开浏览器开发者工具 (F12)<br>
+            2. 切换到 Console 标签页<br>
+            3. 点击下面的下载链接<br>
+            4. 观察控制台输出的调试信息
+        </div>
+
+        <div class="warning">
+            <strong>⚠️ 注意：</strong><br>
+            调试模式的开关在 <a href="config.html" target="_blank">配置页面</a> 中设置。<br>
+            启用调试模式后，控制台会显示详细的拦截和下载过程信息。
+        </div>
+
+        <div class="test-section">
+            <h3>🎯 测试下载链接</h3>
+            <p>点击以下链接测试拦截器功能：</p>
+            
+            <a href="https://example.com/software/test-app.exe" class="download-link">
+                📥 测试软件 1 (test-app.exe)
+            </a>
+            
+            <a href="https://example.com/files/game-installer.msi" class="download-link">
+                🎮 测试游戏 (game-installer.msi)
+            </a>
+            
+            <a href="https://example.com/downloads/tool.zip" class="download-link">
+                🔧 测试工具 (tool.zip)
+            </a>
+        </div>
+
+        <div class="test-section">
+            <h3>🚫 不会被拦截的链接</h3>
+            <p>这些链接不会被拦截器处理：</p>
+            
+            <a href="https://example.com/page.html" class="download-link">
+                📄 普通网页链接
+            </a>
+            
+            <a href="mailto:test@example.com" class="download-link">
+                📧 邮件链接
+            </a>
+            
+            <a href="javascript:void(0)" class="download-link">
+                🔗 JavaScript链接
+            </a>
+        </div>
+
+        <div class="console-info">
+            <strong>控制台输出示例：</strong><br>
+            <br>
+            <span style="color: #50fa7b;">✅ 下载拦截器 v13.0 已加载 - 支持调试模式控制</span><br>
+            <span style="color: #8be9fd;">🚀 下载拦截器启动 v13.0</span><br>
+            <span style="color: #8be9fd;">📡 加载配置: http://localhost/handler.php?action=config</span><br>
+            <span style="color: #50fa7b;">✅ 配置加载成功: 分站系统</span><br>
+            <span style="color: #50fa7b;">🔗 存储服务器: https://dw.ytmour.art</span><br>
+            <span style="color: #50fa7b;">🐛 调试模式: 已启用</span><br>
+            <span style="color: #50fa7b;">✅ 下载拦截器已启动</span><br>
+            <br>
+            <em>当调试模式启用时，还会显示更多详细信息...</em>
+        </div>
+
+        <div class="info">
+            <strong>🔧 配置调试模式：</strong><br>
+            1. 访问 <a href="config.html" target="_blank">配置页面</a><br>
+            2. 勾选"启用控制台调试日志"选项<br>
+            3. 点击"保存配置"<br>
+            4. 刷新此页面重新加载拦截器
+        </div>
+    </div>
+
+    <!-- 引入拦截器脚本 -->
+    <script src="interceptor.js"></script>
+</body>
+</html>
